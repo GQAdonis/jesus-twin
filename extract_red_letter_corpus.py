@@ -57,26 +57,30 @@ def get_usfx_bytes(args):
     return zf.read(xmlname)
 
 def parse_wj(xml_bytes):
-    """Return list of (book_code, chapter, verse, text) for every <wj> span."""
+    """Return list of (book_code, chapter, verse, segment, text) for every <wj> span.
+    `segment` increments at each block boundary (paragraph/poetry line) so that long
+    discourses are split into their natural sense-units instead of one mega-block."""
     out = []
-    cur = {"book": None, "ch": None, "v": None}
-    # iterparse streams; we track milestone state and capture wj text on close.
+    cur = {"book": None, "ch": None, "v": None, "seg": 0}
+    BLOCK = {"p", "q", "q1", "q2", "q3", "li", "li1", "li2", "pc", "pmo", "pm", "d", "m", "mi"}
     for event, elem in ET.iterparse(io.BytesIO(xml_bytes), events=("start", "end")):
         tag = local(elem.tag)
         if event == "start":
             if tag == "book":
                 cur["book"] = (elem.get("id") or "").upper()
-                cur["ch"] = cur["v"] = None
+                cur["ch"] = cur["v"] = None; cur["seg"] = 0
             elif tag == "c":
                 cur["ch"] = elem.get("id")
             elif tag == "v":
                 cur["v"] = elem.get("id")
+            elif tag in BLOCK:
+                cur["seg"] += 1
         else:  # end
             if tag == "wj" and cur["book"] in BOOKS:
                 text = " ".join("".join(elem.itertext()).split()).strip()
                 if text:
-                    out.append((cur["book"], cur["ch"], cur["v"], text))
-            if tag in ("book", "c", "p", "wj", "v"):
+                    out.append((cur["book"], cur["ch"], cur["v"], cur["seg"], text))
+            if tag in ("book", "c", "p", "q", "wj", "v"):
                 elem.clear()
     return out
 
@@ -85,28 +89,36 @@ def to_int(x):
     except ValueError: return 0
 
 def group_sayings(spans):
-    """Merge consecutive verses bearing red letter into contiguous sayings."""
-    # collapse multiple wj in one verse, keep first-seen order
-    by_verse = {}
+    """Merge consecutive verses bearing red letter into contiguous sayings.
+    Spans may be 4-tuples (book, ch, v, text) or 5-tuples (book, ch, v, seg, text).
+    When seg is present, sayings are additionally split at block boundaries.
+    """
+    # normalise to 5-tuples
+    if spans and len(spans[0]) == 4:
+        spans = [(b, c, v, 0, t) for b, c, v, t in spans]
+
+    # collapse multiple wj in one verse+seg, keep first-seen order
+    by_key = {}
     order = []
-    for b, c, v, t in spans:
-        key = (b, to_int(c), to_int(v))
-        if key not in by_verse:
-            by_verse[key] = []
+    for b, c, v, seg, t in spans:
+        key = (b, to_int(c), to_int(v), seg)
+        if key not in by_key:
+            by_key[key] = []
             order.append(key)
-        by_verse[key].append(t)
-    order.sort(key=lambda k: (BOOK_ORDER.index(k[0]) if k[0] in BOOK_ORDER else 99, k[1], k[2]))
+        by_key[key].append(t)
+    order.sort(key=lambda k: (BOOK_ORDER.index(k[0]) if k[0] in BOOK_ORDER else 99, k[1], k[2], k[3]))
 
     sayings, cur = [], None
     for key in order:
-        b, c, v = key
-        text = " ".join(by_verse[key])
-        if cur and cur["b"] == b and cur["c"] == c and v == cur["v_end"] + 1:
+        b, c, v, seg = key
+        text = " ".join(by_key[key])
+        # merge only when same book, chapter, segment, and immediately next verse
+        if cur and cur["b"] == b and cur["c"] == c and cur["seg"] == seg and v == cur["v_end"] + 1:
             cur["v_end"] = v
             cur["text"] += " " + text
         else:
             if cur: sayings.append(cur)
-            cur = {"b": b, "c": c, "v_start": v, "v_end": v, "text": text}
+            cur = {"b": b, "c": c, "v_start": v, "v_end": v, "seg": seg, "text": text}
     if cur: sayings.append(cur)
     return sayings
 
