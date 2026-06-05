@@ -1,20 +1,21 @@
 {
   "phase": "build-agent",
-  "change": "rag-prototype",
+  "change": "eval-suite",
   "status": "in_progress",
-  "last_updated": "2026-06-05T15:30:00Z",
+  "last_updated": "2026-06-05T15:45:00Z",
   "changes": {
-    "rag-prototype": "pending",
-    "annotation-guide": "pending",
-    "annotate-50": "blocked",
-    "mentor-examples": "blocked",
+    "rag-prototype": "complete",
+    "annotation-guide": "complete",
+    "annotate-50": "complete",
+    "mentor-examples": "complete",
+    "eval-suite": "in_progress",
     "lora-train": "blocked",
-    "eval-suite": "blocked",
-    "hebrew-bible": "blocked",
+    "hebrew-bible": "pending",
     "production-lora": "blocked"
   },
+  "next_action": "Write eval/grounding.jsonl, eval/refusal.jsonl, eval/boundary.jsonl, eval/adversarial.jsonl, eval/method-application.jsonl, eval/retrieval.jsonl, and eval/run.py",
   "blockers": [
-    "annotation-guide must complete before annotate-50",
-    "annotate-50 + mentor-examples must complete before lora-train"
+    "eval-suite must complete before lora-train",
+    "eval-suite and hebrew-bible can run in parallel"
   ]
 }

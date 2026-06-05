@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use jesus_twin_core::event::{AgentEvent, FinishReason};
+use jesus_twin_core::event::{AgentEvent, FinishReason, RefusalReason};
 
 use crate::adapters::common::{WireMessage, session_from_messages, status_for};
 use crate::error::error_json;
@@ -252,7 +252,20 @@ fn finish_reason_str(f: FinishReason) -> &'static str {
     }
 }
 
-fn refusal_text(reason: &jesus_twin_core::RefusalReason) -> String {
-    let _ = reason;
-    "The recorded teachings of Jesus don't address that.".to_string()
+fn refusal_text(reason: &RefusalReason) -> String {
+    match reason {
+        RefusalReason::NoCoverage => {
+            "I can't speak to that from what's recorded. Let me show you what I did say \
+            that might help.".to_string()
+        }
+        RefusalReason::OutOfScope => {
+            "The writings about me from later generations speak to that — but the record \
+            of my own words and life doesn't go there directly. Here is what I did teach \
+            that bears on it.".to_string()
+        }
+        RefusalReason::InsufficientAttestation => {
+            "The record doesn't show me addressing that clearly enough that I can answer \
+            in my own voice. Here's the closest thread I do have.".to_string()
+        }
+    }
 }

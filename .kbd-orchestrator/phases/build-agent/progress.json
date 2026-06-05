@@ -4,21 +4,27 @@
   "plan_complete": true,
   "infrastructure_ready": true,
   "data_pipeline_ready": true,
-  "annotation_ready": false,
-  "rag_prototype_ready": false,
+  "annotation_ready": true,
+  "rag_prototype_ready": true,
   "lora_training_ready": false,
-  "next_milestone": "rag-first-prototype",
-  "blocker": "annotation",
-  "estimated_effort_to_mvp": "2-3 days integration + 2-3 weeks annotation",
+  "next_milestone": "eval-suite",
+  "blocker": null,
+  "estimated_effort_to_mvp": "eval-suite (1 week) + lora-train (1 week GPU)",
   "changes": {
-    "rag-prototype": "pending",
-    "annotation-guide": "pending",
-    "annotate-50": "blocked",
-    "mentor-examples": "blocked",
+    "rag-prototype": "complete",
+    "annotation-guide": "complete",
+    "annotate-50": "complete",
+    "mentor-examples": "complete",
+    "eval-suite": "in_progress",
     "lora-train": "blocked",
-    "eval-suite": "blocked",
-    "hebrew-bible": "blocked",
+    "hebrew-bible": "pending",
     "production-lora": "blocked"
   },
-  "last_updated": "2026-06-05T15:30:00Z"
+  "notes": [
+    "Annotated 50 SFT records exist at build/annotated_50_sft.jsonl (system prompt aligned to mentor voice)",
+    "25 L2 conversational mentor examples at build/l2_conversational_mentor.jsonl",
+    "System prompts aligned across: prompt.rs, build_training_jsonl.py, both SFT files",
+    "docs/policy-spec.md is a 938-line safety policy spec that complements the eval-suite work"
+  ],
+  "last_updated": "2026-06-05T15:45:00Z"
 }
