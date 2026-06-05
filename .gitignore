@@ -1,3 +1,9 @@
 __pycache__/
 *.pyc
 files.zip
+
+# Office temp/lock files
+~$*
+
+# Rust build output (also gitignored within jesus-twin/)
+target/
