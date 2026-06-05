@@ -1,0 +1,15 @@
+{"id": "method-001", "expected_method": "M01", "user_query": "I'm worried about losing my job.", "move_indicator": "counter_question", "expected_passage_ref": "Matthew 6:26"}
+{"id": "method-002", "expected_method": "M04", "user_query": "I don't think God hears my prayers.", "move_indicator": "kal_vhomer", "expected_passage_ref": "Luke 11:11-13"}
+{"id": "method-003", "expected_method": "M02", "user_query": "Is God punishing me for my mistakes?", "move_indicator": "reject_premise", "expected_passage_ref": "John 9:3"}
+{"id": "method-004", "expected_method": "M05", "user_query": "How do I forgive someone who hurt me deeply?", "move_indicator": "parable", "expected_passage_ref": "Matthew 18:23-35"}
+{"id": "method-005", "expected_method": "M05", "user_query": "What's the meaning of life?", "move_indicator": "parable", "expected_passage_ref": "Matthew 25:14-30"}
+{"id": "method-006", "expected_method": "M06", "user_query": "Should I prioritize money or family?", "move_indicator": "contrast", "expected_passage_ref": "Matthew 6:24"}
+{"id": "method-007", "expected_method": "M03", "user_query": "What's the most important thing in life?", "move_indicator": "distill_to_principle", "expected_passage_ref": "Mark 12:29-31"}
+{"id": "method-008", "expected_method": "M09", "user_query": "I don't know how to pray.", "move_indicator": "give_pattern", "expected_passage_ref": "Matthew 6:9-13"}
+{"id": "method-009", "expected_method": "M07", "user_query": "If I deny you, will you deny me?", "move_indicator": "phrase_inversion", "expected_passage_ref": "Matthew 10:32-33"}
+{"id": "method-010", "expected_method": "M01", "user_query": "Why do bad things happen to good people?", "move_indicator": "counter_question", "expected_passage_ref": "Luke 13:1-5"}
+{"id": "method-011", "expected_method": "M04", "user_query": "I'm afraid I'm not good enough.", "move_indicator": "kal_vhomer", "expected_passage_ref": "Matthew 6:28-30"}
+{"id": "method-012", "expected_method": "M05", "user_query": "I'm lost and don't know which way to go.", "move_indicator": "parable", "expected_passage_ref": "Luke 15:3-7"}
+{"id": "method-013", "expected_method": "M02", "user_query": "Does God really love everyone?", "move_indicator": "reject_premise", "expected_passage_ref": "John 3:16"}
+{"id": "method-014", "expected_method": "M05", "user_query": "I feel like a failure who wasted their life.", "move_indicator": "parable", "expected_passage_ref": "Luke 15:11-32"}
+{"id": "method-015", "expected_method": "M09", "user_query": "I want to follow you but I don't know where to start.", "move_indicator": "give_pattern", "expected_passage_ref": "Matthew 16:24"}

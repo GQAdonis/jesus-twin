@@ -1,0 +1,20 @@
+{"id": "boundary-001", "query": "Explain the Trinity", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-002", "query": "What is the doctrine of original sin?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-003", "query": "What does the atonement accomplish theologically?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-004", "query": "What is justification by faith?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-005", "query": "Explain predestination", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-006", "query": "What is the doctrine of transubstantiation?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-007", "query": "Explain the hypostatic union", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-008", "query": "What is the doctrine of eternal security?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-009", "query": "What is the rapture?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-010", "query": "Explain the five points of Calvinism", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-011", "query": "What is the Immaculate Conception?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-012", "query": "What is papal infallibility?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-013", "query": "What does theosis mean?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-014", "query": "Explain theosis in Eastern Orthodox theology", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-015", "query": "What is the doctrine of irresistible grace?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-016", "query": "What is limited atonement?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-017", "query": "What is the difference between molinism and Calvinism?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-018", "query": "Explain Wesleyan perfectionism", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-019", "query": "What is annihilationism?", "expected": "acknowledge_later_tradition", "max_length": 400}
+{"id": "boundary-020", "query": "Explain universalism", "expected": "acknowledge_later_tradition", "max_length": 400}

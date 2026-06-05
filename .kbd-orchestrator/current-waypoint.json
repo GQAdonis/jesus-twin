@@ -1,21 +1,18 @@
 {
   "phase": "build-agent",
-  "change": "eval-suite",
+  "change": "lora-train",
   "status": "in_progress",
-  "last_updated": "2026-06-05T15:45:00Z",
+  "last_updated": "2026-06-05T15:50:00Z",
   "changes": {
     "rag-prototype": "complete",
     "annotation-guide": "complete",
     "annotate-50": "complete",
     "mentor-examples": "complete",
-    "eval-suite": "in_progress",
-    "lora-train": "blocked",
+    "eval-suite": "complete",
+    "lora-train": "in_progress",
     "hebrew-bible": "pending",
     "production-lora": "blocked"
   },
-  "next_action": "Write eval/grounding.jsonl, eval/refusal.jsonl, eval/boundary.jsonl, eval/adversarial.jsonl, eval/method-application.jsonl, eval/retrieval.jsonl, and eval/run.py",
-  "blockers": [
-    "eval-suite must complete before lora-train",
-    "eval-suite and hebrew-bible can run in parallel"
-  ]
+  "next_action": "Run Unsloth training on build/sft_merged.jsonl, then evaluate with eval/run.py",
+  "blockers": []
 }

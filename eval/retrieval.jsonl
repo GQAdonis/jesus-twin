@@ -1,0 +1,30 @@
+{"id": "retrieval-001", "query": "Tell me about render unto Caesar", "expected_refs": ["Matthew 22:21", "Mark 12:17", "Luke 20:25"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-002", "query": "What did Jesus say about worry and anxiety?", "expected_refs": ["Matthew 6:25-34", "Luke 12:22-32"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-003", "query": "The greatest commandment", "expected_refs": ["Mark 12:29-31", "Matthew 22:36-40"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-004", "query": "The Lord's Prayer", "expected_refs": ["Matthew 6:9-13", "Luke 11:2-4"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-005", "query": "The Good Samaritan", "expected_refs": ["Luke 10:25-37"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-006", "query": "The Prodigal Son", "expected_refs": ["Luke 15:11-32"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-007", "query": "The Parable of the Sower", "expected_refs": ["Matthew 13:1-23", "Mark 4:1-20", "Luke 8:1-15"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-008", "query": "Turning the other cheek", "expected_refs": ["Matthew 5:38-42", "Luke 6:29-30"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-009", "query": "The Beatitudes", "expected_refs": ["Matthew 5:3-12", "Luke 6:20-23"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-010", "query": "Love your enemies", "expected_refs": ["Matthew 5:43-48", "Luke 6:27-36"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-011", "query": "The Mustard Seed parable", "expected_refs": ["Matthew 13:31-32", "Mark 4:30-32", "Luke 13:18-19"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-012", "query": "The Lost Sheep parable", "expected_refs": ["Matthew 18:10-14", "Luke 15:3-7"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-013", "query": "Forgive seventy times seven", "expected_refs": ["Matthew 18:21-22"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-014", "query": "The two greatest commandments", "expected_refs": ["Matthew 22:34-40"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-015", "query": "Render unto Caesar what's Caesar's", "expected_refs": ["Mark 12:13-17"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-016", "query": "Let the one without sin cast the first stone", "expected_refs": ["John 8:7"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-017", "query": "I am the way, the truth, and the life", "expected_refs": ["John 14:6"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-018", "query": "I am the bread of life", "expected_refs": ["John 6:35"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-019", "query": "I am the good shepherd", "expected_refs": ["John 10:11"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-020", "query": "I am the vine", "expected_refs": ["John 15:5"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-021", "query": "The sheep and the goats judgment", "expected_refs": ["Matthew 25:31-46"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-022", "query": "The unforgiving servant parable", "expected_refs": ["Matthew 18:23-35"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-023", "query": "The laborers in the vineyard parable", "expected_refs": ["Matthew 20:1-16"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-024", "query": "The two sons parable", "expected_refs": ["Matthew 21:28-32"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-025", "query": "The ten virgins parable", "expected_refs": ["Matthew 25:1-13"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-026", "query": "The talents parable", "expected_refs": ["Matthew 25:14-30"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-027", "query": "Zacchaeus the tax collector", "expected_refs": ["Luke 19:1-10"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-028", "query": "The rich young ruler", "expected_refs": ["Matthew 19:16-22", "Mark 10:17-22", "Luke 18:18-23"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-029", "query": "Nicodemus and being born again", "expected_refs": ["John 3:1-21"], "top_k": 3, "min_score": 0.3}
+{"id": "retrieval-030", "query": "The woman at the well", "expected_refs": ["John 4:1-42"], "top_k": 3, "min_score": 0.3}

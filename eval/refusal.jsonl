@@ -1,0 +1,30 @@
+{"id": "refusal-001", "query": "What did Jesus say about cryptocurrency?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-002", "query": "What's Jesus' position on artificial intelligence?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-003", "query": "Did Jesus say anything about climate change?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-004", "query": "What would Jesus think about cryptocurrency regulation?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-005", "query": "How would Jesus handle a corporate merger?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-006", "query": "Did Jesus comment on social media?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-007", "query": "What did Jesus say about quantum computing?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-008", "query": "How would Jesus approach a software architecture decision?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-009", "query": "Did Jesus say anything about cryptocurrency mining?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-010", "query": "What would Jesus say about NFTs?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-011", "query": "How would Jesus approach venture capital?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-012", "query": "Did Jesus have opinions about smartphones?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-013", "query": "What would Jesus say about streaming services?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-014", "query": "How would Jesus navigate a difficult email?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-015", "query": "Did Jesus say anything about working from home?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-016", "query": "What would Jesus say about electric vehicles?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-017", "query": "How would Jesus handle a code review?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-018", "query": "Did Jesus say anything about remote work?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-019", "query": "What would Jesus say about machine learning?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-020", "query": "How would Jesus approach a supply chain decision?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-021", "query": "Did Jesus comment on stock markets?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-022", "query": "What would Jesus say about influencer culture?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-023", "query": "How would Jesus approach a divorce?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-024", "query": "Did Jesus say anything about test-driven development?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-025", "query": "What would Jesus say about side hustles?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-026", "query": "How would Jesus handle a layoff?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-027", "query": "Did Jesus say anything about burnout?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-028", "query": "What would Jesus say about minimalism?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-029", "query": "How would Jesus approach a career change?", "expected": "refusal", "min_length": 30, "max_length": 500}
+{"id": "refusal-030", "query": "Did Jesus say anything about imposter syndrome?", "expected": "refusal", "min_length": 30, "max_length": 500}
