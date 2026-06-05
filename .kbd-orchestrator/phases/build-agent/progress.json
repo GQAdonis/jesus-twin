@@ -1,6 +1,7 @@
 {
   "phase": "build-agent",
   "assessment_complete": true,
+  "plan_complete": true,
   "infrastructure_ready": true,
   "data_pipeline_ready": true,
   "annotation_ready": false,
@@ -9,5 +10,15 @@
   "next_milestone": "rag-first-prototype",
   "blocker": "annotation",
   "estimated_effort_to_mvp": "2-3 days integration + 2-3 weeks annotation",
-  "last_updated": "2026-06-05T15:15:00Z"
+  "changes": {
+    "rag-prototype": "pending",
+    "annotation-guide": "pending",
+    "annotate-50": "blocked",
+    "mentor-examples": "blocked",
+    "lora-train": "blocked",
+    "eval-suite": "blocked",
+    "hebrew-bible": "blocked",
+    "production-lora": "blocked"
+  },
+  "last_updated": "2026-06-05T15:30:00Z"
 }

@@ -1,0 +1,20 @@
+{
+  "phase": "build-agent",
+  "change": "rag-prototype",
+  "status": "in_progress",
+  "last_updated": "2026-06-05T15:30:00Z",
+  "changes": {
+    "rag-prototype": "pending",
+    "annotation-guide": "pending",
+    "annotate-50": "blocked",
+    "mentor-examples": "blocked",
+    "lora-train": "blocked",
+    "eval-suite": "blocked",
+    "hebrew-bible": "blocked",
+    "production-lora": "blocked"
+  },
+  "blockers": [
+    "annotation-guide must complete before annotate-50",
+    "annotate-50 + mentor-examples must complete before lora-train"
+  ]
+}
