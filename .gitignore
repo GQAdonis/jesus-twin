@@ -7,4 +7,6 @@ files.zip
 
 # Rust build output (also gitignored within jesus-twin/)
 target/
-.opencode/
+
+# OpenCode session/loop state (keep the OpenSpec integration under .opencode/)
+.opencode/opencode-loop/
