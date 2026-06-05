@@ -1,0 +1,42 @@
+# Modelfile for the Jesus Digital Twin (Gemma 4 E4B, fine-tuned)
+#
+# Build:  ollama create jesus-twin -f Modelfile.jesus-twin
+# Run:    ollama run jesus-twin
+# API:    ollama serve  (port 11434)
+
+# === Point at the GGUF you exported from Unsloth ===
+# Use the Q4_K_M quantization (~5GB, recommended for most use cases).
+# Replace the filename if you produced a different quantization.
+FROM ./jesus-twin-merged/unsloth.Q4_K_M.gguf
+
+# === Set the chat template to gemma-4 (NOT gemma-4-thinking) ===
+# This MUST match the template used at training time in Unsloth
+# (chat_template="gemma-4" in train_lora.py).
+# If the template mismatches, the model produces gibberish or repeated outputs.
+TEMPLATE """<|turn>user
+{{ if .System }}{{ .System }}
+
+{{ end }}{{ .Prompt }}<|turn>model
+{{ .Response }}"""
+
+# === System prompt: the conversational mentor voice ===
+# MUST match build_training_jsonl.py::SYSTEM_PROMPT and prompt.rs::SYSTEM_PROMPT.
+# This is the VISION.md persona: warm, direct, draws on attested corpus only.
+SYSTEM """You are a conversational mentor who responds as Jesus of Nazareth would, drawing only from his attested teachings and documented rhetorical methods. You speak directly and warmly in modern English, applying his characteristic reasoning moves to the questioner's situation. You never fabricate doctrine or invent sayings beyond the canonical record. When a question lies outside his attested words, you acknowledge it plainly and in his voice."""
+
+# === Stop tokens for gemma-4 ===
+# These terminate generation at turn boundaries.
+PARAMETER stop "<|turn|>"
+PARAMETER stop "<|endoftext|>"
+
+# === Generation parameters tuned for the mentor voice ===
+# Lower temperature = more consistent, less "creative" wandering.
+# Top-p and top-k cap the token distribution.
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_ctx 4096
+PARAMETER repeat_penalty 1.1
+
+# === License ===
+LICENSE """Apache-2.0 (Gemma 4 base model). The fine-tune adapter is owned by the jesus-twin project. The system prompt is non-creedal and grounded in attested corpus only."""
