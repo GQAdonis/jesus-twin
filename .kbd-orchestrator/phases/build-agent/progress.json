@@ -9,7 +9,7 @@
   "lora_training_ready": false,
   "next_milestone": "lora-train",
   "blocker": null,
-  "estimated_effort_to_mvp": "lora-train (1 week GPU)",
+  "estimated_effort_to_mvp": "lora-train (1 week GPU) + hebrew-bible (2 weeks corpus)",
   "changes": {
     "rag-prototype": "complete",
     "annotation-guide": "complete",
@@ -17,17 +17,19 @@
     "mentor-examples": "complete",
     "eval-suite": "complete",
     "lora-train": "in_progress",
-    "hebrew-bible": "pending",
+    "hebrew-bible": "in_progress",
     "production-lora": "blocked"
   },
   "notes": [
     "Annotated 50 SFT records at build/annotated_50_sft.jsonl (system prompt aligned to mentor voice)",
     "25 L2 conversational mentor examples at build/l2_conversational_mentor.jsonl",
-    "Merged SFT file at build/sft_merged.jsonl (75 records total) ready for Unsloth training",
-    "Eval suite: 6 JSONL files, 145 tests total, eval/run.py runner, eval/README.md guide",
+    "Merged SFT file at build/sft_merged.jsonl (75 records) ready for Unsloth training",
+    "train_lora.py: runnable Unsloth training script (gemma-4, thinking off, train_on_responses_only, merged_16bit)",
+    "Eval suite: 6 JSONL files, 145 tests, eval/run.py runner, eval/README.md guide",
+    "ingest_tanakh.py: Tanakh corpus fetcher (JPS 1917) for hebrew-bible change",
     "Move taxonomy in annotation is broader than 9 methods (M01-M18) — annotation guide should be updated",
-    "docs/policy-spec.md is 938-line safety policy spec (complements eval-suite)",
+    "docs/policy-spec.md: 938-line safety policy spec (complements eval-suite)",
     "System prompts aligned across: prompt.rs, build_training_jsonl.py, both SFT files, l2 file"
   ],
-  "last_updated": "2026-06-05T15:50:00Z"
+  "last_updated": "2026-06-05T15:55:00Z"
 }
