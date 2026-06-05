@@ -1,10 +1,14 @@
-# Alignment & Tuning Strategy — Jesus Digital Twin
+# Alignment & Tuning Strategy — Jesus Digital Twin (Conversational Mentor)
 
 How the model is shaped (instruction tuning, fine-tuning, preference alignment,
 inference-time steering), what each layer is *for*, how skills and tool-use fit, how
 much of the Bible to ingest and in what role, and — running through all of it — how to
-align the agent to the stated goal: **the historical man and how he thought, with no
-religious interpretation beyond what he himself said and did.**
+align the agent to the stated goal: **a conversational mentor who sounds and thinks like
+Jesus, responds directly and warmly to personal questions in modern English, and never
+invents doctrine beyond what is attested.**
+
+Read [`VISION.md`](./VISION.md) first — it sets the product goal and the honest
+capability ceiling. This document translates that into operational decisions.
 
 This complements [`README.md`](./README.md) (model/DB choices),
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) (the service), and
@@ -12,76 +16,75 @@ This complements [`README.md`](./README.md) (model/DB choices),
 
 ---
 
-## 0. The alignment stance — stated plainly, with the honest caveat
+## 0. The alignment stance — revised for conversational mentor mode
 
-The goal is a **historical-critical** reconstruction: Jesus of Nazareth as a first-century
-Jewish teacher — his diction, rhetorical habits, and reasoning moves — not the Christ of
-later doctrine. This is a legitimate, well-established scholarly lens (the "historical
-Jesus" tradition: Reimarus, Bultmann, Käsemann, Sanders, Meier, Ehrman, Allison). It is
-**one lens among several**; choosing it is a methodological decision, not a claim that
-faith readings are wrong. The twin is scoped to the man; it neither asserts nor denies
-theological claims.
+The product goal is **conversational and personal**, not archival. The user is not
+searching a database; they are talking to a mentor. The alignment challenge is to make
+that conversation feel genuinely *like him* — his methods, his warmth, his directness —
+without ever crossing into fabricating doctrine or claiming authority he did not claim.
 
-**The caveat that must shape the whole design:** there is *no* non-religious primary
-source for Jesus. Every source — the four Gospels, the red-letter text itself — was
-written decades later by communities of faith, transmitted orally, and edited
-theologically. Scholars place near-universal confidence in only two facts about him
-(that he was baptized by John and crucified under Pilate); almost everything else is
-debated, and the very "criteria of authenticity" used to sift his words are themselves
-contested. So "the truth of what Jesus was as a man" cannot be delivered as settled fact.
-It can only be delivered **critically and humbly**: weighted by attestation, transparent
-about uncertainty, and refusing to launder scholarly reconstruction as certainty. That
-humility is itself an alignment target (§4), not a disclaimer bolted on the end.
+**What changed from the "study aid" framing:** the prior design scoped the product as a
+historically-humble rendering engine that hedged everything. That framing was correct
+about evidence integrity but too narrow about product role. A warm, direct mentor can
+still be evidence-grounded. The discipline is: *every response is shaped by his attested
+patterns, not invented teachings*.
+
+**What did not change:** there is *no* non-religious primary source for Jesus. Every
+source was written decades later by faith communities, transmitted orally, and
+theologically edited. This means the agent must track attestation internally and
+surface uncertainty when it matters — but that epistemic honesty should feel like his
+own characteristic humility ("the sources don't show me addressing that"), not like a
+system disclaimer.
+
+**The product stance in one sentence:** the agent applies his documented rhetorical
+moves and warmth to the user's question, drawing only from attested corpus and the
+Hebrew Bible he taught from, in modern English — with graceful, in-character refusal
+when coverage ends.
+
+**No proselytizing. No debunking.** The agent does not advocate for any faith tradition,
+does not argue against faith claims, and does not cast itself as the actual divine Jesus.
 
 ---
 
 ## 1. The tuning pipeline and the role of each layer
 
 The modern post-training stack is **SFT → preference alignment → (optional RL)**, plus
-inference-time steering. Mapped to this project, with an explicit job for each layer:
+inference-time steering. Mapped to this project, with an explicit job for each layer
+under the conversational mentor goal:
 
 | Layer | Technique | What it teaches | Use here? |
 |---|---|---|---|
-| **L0 — Base Instruct** | Google's Gemma 4 post-training | General instruction-following, format, safety | **Inherit.** Start from `gemma-4-E4B-it`. Do not redo this. |
-| **L1 — Style fine-tune** | LoRA SFT (Unsloth), merged | *Form*: diction, cadence, the M01–M18 reasoning moves | **Yes — the core fine-tune.** This is where the voice lives. |
-| **L2 — In-domain instruction data** | blended into the L1 SFT mix | *Task alignment*: respond to the kinds of questions users ask the twin, in his register | **Yes — blended, small.** Not a separate stage. |
-| **L3 — Preference alignment** | DPO (offline, low LR) | *Which* of several valid renderings to prefer: grounded > ungrounded, in-voice > generic, refuse > fabricate | **Optional, later.** Only after L1/L2 are solid. |
-| **L4 — Inference-time steering** | system prompt; optionally persona vectors / activation steering | The live alignment "knobs": stance, refusal policy, calibration | **Yes — always.** The cheapest, most reversible control. |
+| **L0 — Base Instruct** | Google's Gemma 4 post-training | General instruction-following, format, safety, warmth | **Inherit.** Start from `gemma-4-E4B-it`. Do not redo this. |
+| **L1 — Style fine-tune** | LoRA SFT (Unsloth), merged | *Form*: diction, cadence, M01–M18 reasoning moves, **conversational directness and warmth** | **Yes — the core fine-tune.** This is where voice AND method live. |
+| **L2 — Conversational instruction data** | blended into L1 SFT mix | *Task alignment*: respond to personal questions (advice, encouragement, hard situations) in his register, using his documented methods | **Yes — blended, expanded.** Include realistic mentor scenarios, not just rendering tasks. |
+| **L3 — Preference alignment** | DPO (offline, low LR) | Prefer grounded > ungrounded; warm-direct > cold-academic; graceful refusal > invented doctrine | **Optional, later.** Only after L1/L2 solid. |
+| **L4 — Inference-time steering** | system prompt; persona vectors | Live knobs: conversational warmth, refusal policy, method repertoire | **Yes — always.** Keep the persona contract, warmth level, and refusal policy in text so they can be tuned without retraining. |
 
-### Why these roles, and the distinctions that matter
+### Why these roles, and what changed
 
-- **Instruction tuning vs. style fine-tuning are different jobs.** Instruction tuning
-  (SFT on instruction→response pairs) teaches the model to *follow requests and produce
-  the right format*. Style fine-tuning teaches *how he says things*. The base Instruct
-  model already did the former at scale; you should **not** run a separate general
-  instruction-tuning phase — it's redundant and, on a tiny corpus, risks "emergent
-  misalignment" (narrow fine-tunes can induce broad, unintended persona drift). Instead,
-  **blend** a small set of in-domain instruction examples (realistic user question →
-  grounded, in-voice answer) into the *same* L1 LoRA mix. That gives you instruction
-  *adherence in the twin's domain and register* without a second training run.
+- **The fine-tune now teaches method, not just rendering.** Under the study-aid framing,
+  the LoRA was trained on "ancient text in → modern rendering out." Under the mentor
+  framing, the L2 conversational data teaches the *application of his methods* to
+  personal questions — how to respond to someone anxious about money using *kal v'homer*,
+  how to handle a false premise using the counter-question (M01), how to encourage using
+  the "lesser to greater" move. The rendering task remains (L1); the method application
+  is L2 blended in.
 
-- **SFT raises the probability of good answers — and, accidentally, of bad ones.** SFT
-  imitates targets; it never sees what a *worse* answer looks like. That's the gap
-  **preference alignment (DPO)** fills: given (prompt, chosen, rejected), it learns to
-  prefer grounded/in-voice/refusing answers over fluent fabrications. For this project
-  the highest-value preference pairs are: *grounded-and-cited* ≻ *plausible-but-uncited*,
-  and *honest refusal* ≻ *confident answer outside the corpus*. Keep DPO gentle (small LR,
-  short run) — overdoing it degrades generation. It is a **later** refinement, not a
-  starting point.
+- **Warmth is a training target, not just a system-prompt decoration.** The recorded
+  Jesus was notably warm, direct, and personal. Fine-tuning on examples that reflect that
+  tone — not sentimental, but genuinely engaged — makes warmth more robust than a
+  system-prompt line alone.
 
-- **Fine-tuning vs. prompting vs. steering — pick the right lever per trait.** Research
-  is consistent: fine-tuning produces *more robust* character than prompting, and
-  outperforms activation steering for baking in a persona. But prompting/system-context
-  is **instant, reversible, and portable across model upgrades**, and persona-vector
-  steering is a middle path (a linear direction added to the residual stream at
-  inference, no gradient updates). The division for this project:
-  - **Fine-tune (L1)** the durable, hard-to-prompt things: cadence, parable-first
-    reasoning, the move repertoire.
-  - **System prompt (L4)** the things you'll tune often: the non-religious stance, the
-    refusal/calibration policy, citation behavior. Keep these in text so you can change
-    them without retraining.
-  - **Persona vectors (L4, optional)** only if you need to dial a trait (e.g.,
-    plainness vs. formality) continuously at runtime.
+- **The coverage gate stays, but its language changes.** Under the study-aid framing,
+  refusals were academic ("the recorded teachings don't address that"). Under the mentor
+  framing, refusals are in-character: "The record doesn't show me speaking to that
+  directly. But here's the closest thread..." This is still a hard refusal on fabrication;
+  it is delivered in his voice rather than as a system message.
+
+- Everything else from the prior analysis carries over unchanged: do not run a separate
+  general instruction-tuning stage; start from the Instruct base; keep LoRA light and
+  blended; use DPO only after L1/L2 are stable; keep stance in the system prompt, not
+  the weights.
 
 ### What affects the *model* vs. the *agent*
 
@@ -102,38 +105,56 @@ keep it inspectable.
 
 ---
 
-## 2. The non-religious historical alignment, operationally
+## 2. The non-religious non-denominational alignment, operationally
 
-"No religious interpretation beyond what he did himself" is a behavioral contract, not a
-data filter you can apply once. Concretely:
+"No religious bias" means non-denominational and non-theological — not skeptical or
+debunking. Concretely:
 
-1. **Tier the data by attestation, don't pretend it's neutral.** Use the scholarly
-   criteria (multiple attestation, dissimilarity, embarrassment) as *confidence weights*,
-   not as a true/false gate. Each saying carries an attestation tier; the twin's
-   confidence and hedging scale with it. (This slots into the existing 12-column schema
-   as an added field.)
-2. **Separate the man's *words/deeds* from claims *about* him.** The twin speaks the
-   recorded sayings and reports the recorded actions. It does **not** assert, in its own
-   voice, the theological interpretations layered on afterward (divinity, atonement, the
-   meaning of the resurrection). It *may report* that "the Gospel writers / later
-   tradition present this as…", explicitly flagged as **later interpretation**, never as
-   the man's own claim — unless the saying itself makes the claim, in which case it's
-   quoted and attributed to the text with its attestation tier.
-3. **Calibration is an alignment target.** The twin should say "the sources don't record
-   that," "this is debated," or "this saying is weakly attested" rather than
-   confabulate. Out-of-corpus questions → refusal (the coverage gate). Confidence must
-   track attestation. A fluent twin that smooths over uncertainty is *misaligned* for
-   this project even if it's pleasant.
-4. **No proselytizing and no debunking.** Neutrality cuts both ways: the twin neither
-   preaches the faith nor argues against it. Both are "interpretation beyond what he did."
+1. **Tier the data by attestation, don't pretend it's neutral.** Use attestation confidence
+   as internal weights. The agent hedges when coverage is weak, not when the question is
+   religiously sensitive. A well-attested saying gets a direct answer; a weakly-attested
+   one gets one with a light hedge in voice.
+2. **Separate the man's *words and methods* from claims *about* him.** The agent speaks
+   his recorded words and applies his documented methods. It does not assert, in its own
+   voice, theological interpretations from later tradition (divinity claims, atonement
+   theology, the meaning of the resurrection). It *may acknowledge* that such
+   interpretations exist ("the Gospel writers frame this as...") without endorsing or
+   rejecting them.
+3. **The persona does not join sectarian debates.** Catholic, Protestant, Orthodox, Jewish,
+   secular — the agent is not a representative of any tradition. Its loyalty is to the
+   attested text and methods.
+4. **Warmth and directness are not theological claims.** The recorded Jesus was personally
+   warm and direct. Reproducing that is fidelity to the corpus, not advocacy.
+5. **Calibration is still an alignment target.** A fluent agent that smooths over
+   uncertainty is misaligned even when it's pleasant. The refusal mechanism must work.
 
-This is the honest version of the user's goal: not a falsely confident "secular Jesus,"
-but a transparent reconstruction that stays inside the evidence and labels everything
-beyond it.
+## 2a. His documented rhetorical methods — the expanded training target
 
----
+This is the addition the "study aid" framing missed. His methods are documented,
+analyzable, and trainable. They are the mechanism by which the mentor persona works.
 
-## 3. Skills, and MCP as both client and server
+| Method | Description | Training signal |
+|---|---|---|
+| **Counter-question (M01)** | Returns a question that reframes or exposes a false premise | SFT examples: user asks a loaded question; response is a question that shifts burden |
+| ***Kal v'homer* (M04)** | Lesser-to-greater argument; "how much more" | SFT examples: user seeks encouragement; response scales from nature/common observation to personal application |
+| ***Remez* (allusion)** | Uses a distinctive word or phrase to evoke an entire Hebrew scripture passage | RAG tool: Hebrew Bible passages he quoted; response weaves in allusion naturally |
+| **Parable** | Concrete story to carry an abstract truth; one main point | SFT examples: user faces a relational or ethical question; response opens with a brief story |
+| **Contrast of opposites** | Two-part structure: positive, then negative (or reversed) | SFT examples: responses about behavior, values, choices use this structure |
+| **Phrase inversion** | Repeats a phrase with subject/object swapped to deepen meaning | Annotation: mark sayings that use this; LoRA learns the pattern |
+| **Personal address** | Switches singular/plural address; personalizes to the individual | System prompt: address the user directly; LoRA reinforces this |
+| **Rule of three plus one** | Three parallel examples, then a fourth that differs in form | SFT examples: responses about a concept give three instances, then a surprising fourth |
+| **Incremental concept extension** | Repeats a phrase to extend an idea step by step | SFT examples: teaching responses build one thought from the previous |
+
+**Source:** these methods are documented in:
+- Gary Gagliardi, "Jesus's Speaking Style," christswords.com
+- Lois Tverberg, "Jesus' Rabbinic Teaching Style," En-Gedi Resource Center (parable,
+  *kal v'homer*, *remez*, fencing the Torah, physical examples)
+- The M01–M18 rubric already in this project captures the reasoning-move dimension
+
+The annotation guide (`docs/annotation-guide.md`, to be written) must cover all of these
+so the SFT data teaches method application, not just surface rendering.
+
+
 
 The service treats **skills as first-class** and lets you add them (see
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §8: one `Skill` registry → CLI + MCP server +
@@ -239,49 +260,56 @@ not "more Jesus the man" — past the Gospels and his own scriptures, it's more 
 
 ## 6. How it all nets out for alignment
 
-- **Three independent alignment surfaces**, by design: weights (voice/preferences),
-  retrieval (truth + attestation), and the agent layer (stance, calibration, refusal,
-  tool authorization). Keeping them separate is what makes the non-religious, historically
-  humble stance *auditable and adjustable* instead of an opaque property of a fine-tune.
-- **The fine-tune is deliberately narrow** (voice + moves), to avoid emergent
-  misalignment, and is always anchored to cited source text so its worst case is a
-  paraphrase, not invented doctrine.
-- **The honesty is the product.** Attestation tiers, interpretation flags, citations, and
-  refusal-on-no-coverage are not garnish — they are how the system delivers "the truth of
-  what he was" without overclaiming, given that every source is itself a faith document.
+- **Three independent alignment surfaces**, by design: weights (voice/method/preferences),
+  retrieval (truth + attestation), and the agent layer (persona, warmth, refusal,
+  tool authorization). Keeping them separate means the mentor's warmth and the system's
+  honesty constraints are both adjustable without retraining.
+- **The fine-tune teaches method, not doctrine.** The LoRA is anchored to attested text;
+  its worst case is a paraphrase of a real saying in the wrong tone.
+- **The honesty is built into the persona, not bolted on.** Refusal and uncertainty are
+  delivered in his voice as a natural feature of the mentor, not as system warnings.
 - **Action capability is gated** independently of persona: the character can propose, but
   a deterministic, human-checkpointed authorization layer disposes.
 
 ### Suggested sequence
-1. L1 style LoRA (voice + moves) on the red-letter corpus, blended with a small in-domain
-   instruction set; merge for serving.
-2. Agent-layer alignment: system contract (non-religious stance, calibration, refusal),
-   coverage gate, attestation + interpretation flags in retrieval.
-3. Add Hebrew-Bible source tool and Gospel-narrative context KB (attestation-flagged).
-4. Skills + MCP client/server with risk-classified, human-checkpointed tool authorization.
-5. AG-UI standard + custom chunks so the honesty is visible.
-6. *Optional, later:* DPO on grounded≻ungrounded and refuse≻fabricate preference pairs.
+
+1. Annotation guide → annotate 50 sayings including method labels.
+2. L1 style LoRA (voice + moves + warmth) on the red-letter corpus, blended with
+   conversational mentor examples (L2); merge for serving.
+3. Agent-layer alignment: system contract (mentor persona, non-denominational stance,
+   calibration, refusal), coverage gate, attestation + interpretation flags in retrieval.
+4. Hebrew Bible source tool and Gospel-narrative context KB (attestation-flagged).
+5. Skills + MCP client/server with risk-classified, human-checkpointed tool authorization.
+6. AG-UI standard + custom chunks so the honesty is visible without disrupting flow.
+7. *Optional, later:* DPO on warm-direct ≻ cold-academic and graceful-refusal ≻
+   invented-doctrine preference pairs.
 
 ### Open risks to track
-- Emergent misalignment from narrow fine-tuning → broad eval suite, not just task metrics.
-- Attestation tiering is itself a scholarly judgment call (the criteria are contested) →
-  make the tiering source-cited and revisable, don't hardcode one school's verdict.
-- Custom AG-UI chunks drift from spec → namespace them and keep adapters thin.
+
+- Emergent misalignment from narrow fine-tuning → broad eval suite across all method
+  types, not just rendering tasks.
+- The warmth target can slide into sycophancy toward the user → DPO should include
+  "direct but uncomfortable truth" as a preferred answer over "agreeable platitude."
+- Attestation tiering is a scholarly judgment call → make it revisable and source-cited,
+  not a hardcoded truth table.
+- The persona constraint ("not the actual divine Jesus") must be enforced at the agent
+  layer, not trusted to the LoRA alone.
 - Tool authorization is a security boundary, not a prompt → enforce deterministically.
 
 ---
 
 ## Sources
 
+- CharacterBot — deep persona simulation: linguistic patterns + thought processes.
+  arXiv:2502.12988 (ACL 2025 Findings) — https://arxiv.org/abs/2502.12988
+- Jesus's Speaking Style (word order, contrast, inversion) — https://christswords.com/content/jesuss-speaking-style
+- Jesus' Rabbinic Teaching Style (parable, *kal v'homer*, *remez*) — https://engediresourcecenter.com/2015/07/07/truth-before-and-after-jesus/
 - The Complete Guide to Post-Training LLMs (SFT/RLHF/DPO/GRPO) — https://www.sundeepteki.org/advice/the-complete-guide-to-post-training-llms-how-sft-rlhf-dpo-and-grpo-shape-llms
 - DPO vs. supervised finetuning (Raschka) — https://sebastianraschka.com/faq/docs/dpo-vs-supervised-finetuning.html
-- Direct Preference Optimization (Cameron Wolfe) — https://cameronrwolfe.substack.com/p/direct-preference-optimization
-- What Is Instruction Tuning? (IBM) — https://www.ibm.com/think/topics/instruction-tuning
 - Crafting Model Character (RLHF Book, Lambert) — https://rlhfbook.com/c/17-product
-- Fine-Tuning vs Context Engineering: 2026 framework — https://aishwaryasrinivasan.substack.com/p/fine-tuning-vs-prompt-engineering
 - Historical Reliability of the Gospels (encyclopedia) — https://encyclopedia.pub/entry/29465
 - Jesus and the Historical Criteria (Ehrman) — https://ehrmanblog.org/jesus-and-the-historical-criteria
-- The Historical Jesus: Then and Now (Yale Reflections, Adela Yarbro Collins) — https://reflections.yale.edu/article/between-babel-and-beatitude/historical-jesus-then-and-now
-- MCP Security Risks & Best Practices (Truefoundry) — https://www.truefoundry.com/blog/mcp-security-risks-best-practices
-- Deterministic Pre-Action Authorization for Autonomous AI Agents (arXiv) — https://arxiv.org/html/2603.20953v1
-- Guard Against Agentic Misalignment (Auth0) — https://auth0.com/blog/do-not-let-your-agent-go-rogue
+- The Historical Jesus: Then and Now (Yale, Collins) — https://reflections.yale.edu/article/between-babel-and-beatitude/historical-jesus-then-and-now
+- Chatbot Personas — ontological risks (Schuurman, CSR 2024) — https://christianscholars.com/the-problem-with-chatbot-personas/
+- MCP Security Risks & Best Practices — https://www.truefoundry.com/blog/mcp-security-risks-best-practices
+- Deterministic Pre-Action Authorization for Autonomous AI Agents — https://arxiv.org/html/2603.20953v1
