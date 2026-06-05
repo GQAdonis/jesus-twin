@@ -1,0 +1,29 @@
+[package]
+name = "jesus-twin-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SurrealDB 3.1 graphrag store behind a Store trait: vector + graph + BM25 + RRF."
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+# Embedded SurrealDB. `kv-rocksdb` gives the in-process RocksDB engine; `kv-mem` is used by
+# tests and the ephemeral store. HNSW vector, BM25 full-text, and search::rrf are part of
+# the query engine (no extra feature flag). Vector indexes are defined in the schema now but
+# stay empty until the embedder lands.
+#
+# Pinned to =3.1.1: 3.1.2 depends on `surrealmx ^0.21.0`, which is unpublished on crates.io
+# (only <=0.18 exists), so 3.1.2 currently fails to resolve. Re-evaluate when a fixed patch
+# ships. (validated 2026-06-02)
+surrealdb = { version = "=3.1.1", features = ["kv-rocksdb", "kv-mem"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt", "macros"] }

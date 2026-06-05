@@ -1,0 +1,40 @@
+[package]
+name = "jesus-twin-api"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Axum 0.8 app mounting four thin protocol adapters (OpenAI, MCP, AG-UI, A2A) on one core."
+
+[dependencies]
+jesus-twin-core.workspace = true
+jesus-twin-skills.workspace = true
+
+axum.workspace = true
+tokio.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+# Official MCP Rust SDK. `server` + `macros` are on by default; add the streamable-HTTP
+# server transport so the MCP service nests onto the same Axum app (the remote transport).
+# The stdio transport is deferred to the CLI. A2A is hand-rolled (no `ra2a`) for its two core
+# methods; revisit if push/streaming are needed.
+rmcp = { version = "1", features = [
+    "server",
+    "macros",
+    "transport-streamable-http-server",
+    "transport-streamable-http-server-session",
+] }
+# Tool argument schemas for rmcp's `#[tool]` macro.
+schemars = "1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+async-trait.workspace = true
+uuid.workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "jesus-twin-skills"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "One Skill registry consumed by three frontends: CLI, MCP server, and the model tool-list."
+
+[dependencies]
+jesus-twin-store.workspace = true
+jesus-twin-inference.workspace = true
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+async-trait.workspace = true

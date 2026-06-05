@@ -1,0 +1,25 @@
+[package]
+name = "jesus-twin-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Agent core: canonical AgentEvent stream, orchestrator, coverage gate. No protocol, no I/O."
+
+[dependencies]
+jesus-twin-inference.workspace = true
+jesus-twin-store.workspace = true
+jesus-twin-skills.workspace = true
+jesus-twin-admission.workspace = true
+
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

@@ -1,0 +1,23 @@
+[package]
+name = "jesus-twin-admission"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Admission control via the Prometheus parking-lot: admit / queue / backpressure / 503."
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+
+# Admission control is a bounded-concurrency problem: a tokio Semaphore caps in-flight
+# resource units, with queue-depth + timeout giving backpressure/503. This is exactly the
+# ARCHITECTURE.md §6 boundary — admission, NOT task execution. The prometheus-parking-lot
+# fork is a full task-pool framework (worker threads + mailboxes that OWN execution), which
+# would violate that boundary; its ResourceCost/PoolLimits could back this later if a full
+# pool is ever wanted, but the engine (mistral.rs) must keep owning execution.
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync"] }

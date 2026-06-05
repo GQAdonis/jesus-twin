@@ -1,0 +1,19 @@
+# Model + device + cache config for jesus-twin (ARCHITECTURE.md §2).
+# Consumed by jesus-twin-inference once mistral.rs is wired (build-sequence step 2).
+# Placeholder values — re-verify model ids and dimensions before use.
+
+generation:
+  # Unsloth-MERGED Gemma 4 E4B checkpoint (runtime LoRA for Gemma 4 is unsupported —
+  # serve the merged model). Use the HF id for the base, or a local path for the merge.
+  model_id: "google/gemma-4-E4B-it"
+  local_path: null            # e.g. "/models/jesus-twin-merged"
+  thinking_mode: false        # OFF for diction fidelity
+  isq: "Q4K"                  # in-situ quantization at load
+
+embedding:
+  # Same runtime as generation — no separate embedding service.
+  model_id: "google/embedding-gemma"
+  dimension: 768              # MUST match jesus-twin-store::schema::EMBEDDING_DIM
+
+device:
+  kind: "auto"                # auto | cpu | metal | cuda

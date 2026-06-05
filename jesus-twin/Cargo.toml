@@ -1,0 +1,60 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/GQAdonis/jesus-twin"
+
+# Shared, lightweight dependencies. Heavy / fork-pinned deps (mistral.rs, candle,
+# surrealdb, prometheus-parking-lot) are intentionally NOT wired in yet — see the
+# `[workspace.metadata.pending-deps]` block below and the per-crate TODOs. Adding them
+# now would risk the candle version-coupling build errors documented in CLAUDE.md before
+# any real code exists.
+[workspace.dependencies]
+# async runtime + futures
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# errors + ids + logging
+thiserror = "2"
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# web (OpenAI / AG-UI / A2A surfaces)
+axum = "0.8"
+
+# cli
+clap = { version = "4", features = ["derive", "env"] }
+
+# internal crates
+jesus-twin-core = { path = "crates/jesus-twin-core" }
+jesus-twin-inference = { path = "crates/jesus-twin-inference" }
+jesus-twin-store = { path = "crates/jesus-twin-store" }
+jesus-twin-skills = { path = "crates/jesus-twin-skills" }
+jesus-twin-admission = { path = "crates/jesus-twin-admission" }
+jesus-twin-api = { path = "crates/jesus-twin-api" }
+
+# Tracking list for the fork-pinned deps to add when each crate's real implementation
+# lands. Pin EXACT git revs here (CLAUDE.md gotcha: candle coupling). Not consumed by
+# Cargo — a checklist only.
+[workspace.metadata.pending-deps]
+mistralrs = "git GQAdonis/mistral.rs @ <rev> — jesus-twin-inference"
+candle = "git GQAdonis/candle @ <rev> — align rev with mistral.rs or use [patch]"
+surrealdb = "3.1, features = kv-surrealkv + HNSW + BM25 + search::rrf — jesus-twin-store"
+prometheus-parking-lot = "git Prometheus-AGS/prometheus-parking-lot-rs @ <rev> — jesus-twin-admission"
+rmcp = "MCP server (stdio + streamable HTTP) — jesus-twin-api/adapters/mcp"
+ra2a = "A2A v1.0 JSON-RPC handlers — jesus-twin-api/adapters/a2a (evaluate)"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

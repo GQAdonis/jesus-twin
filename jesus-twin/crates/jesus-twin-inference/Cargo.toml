@@ -1,0 +1,34 @@
+[package]
+name = "jesus-twin-inference"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Wraps mistral.rs as a library: Gemma 4 generation + Embedding Gemma, mapped to AgentEvents."
+
+[features]
+# `mistralrs` compiles the real-backend module (`src/mistral.rs`) and pulls the mistral.rs
+# fork. Off by default so normal builds stay fast and avoid the candle version-coupling sharp
+# edge (CLAUDE.md gotcha); the mock backend covers everything otherwise.
+default = []
+mistralrs = ["dep:mistralrs", "dep:anyhow"]
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Real inference backend, gated behind the `mistralrs` feature. Pinned to the fork rev I
+# verified the API against (GQAdonis/mistral.rs @ b7746a85, mistralrs 0.8.3). The fork pins
+# candle by `branch = "main"` and warns "keep all crates on the same git rev for ABI
+# compatibility"; if a duplicate-candle / trait-mismatch surfaces, add a workspace `[patch]`
+# aligning candle to the fork's rev (or the HF fallback rev `5404348`) — the CLAUDE.md gotcha.
+# Serve the Unsloth-MERGED Gemma 4 checkpoint; thinking mode OFF.
+mistralrs = { git = "https://github.com/GQAdonis/mistral.rs", rev = "b7746a85", optional = true }
+anyhow = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
