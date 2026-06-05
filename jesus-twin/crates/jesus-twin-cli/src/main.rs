@@ -8,8 +8,10 @@
 //!   - `skill <name>`     — invoke a registered skill locally/offline (or list them).
 //!   - `chat`             — interactive REPL against the orchestrator.
 //!
-//! `serve`/`ingest`/`retrieve`/`ask`/`skill` are live; `chat` is a stub. `ask`/`skill` use the
-//! deterministic MockEngine until the real model is wired (`--features mistralrs`).
+//! `serve`/`ingest`/`retrieve`/`ask`/`skill` are live; `chat` is a stub. `serve` uses the real
+//! Gemma 4 (mistral.rs) when built `--features mistralrs` (set `JESUS_TWIN_MODEL` to the merged
+//! checkpoint — see RECIPE.md); otherwise the deterministic MockEngine. `ask`/`skill` use the
+//! mock engine.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -128,30 +130,56 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(addr: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
-    // The served path is concurrent, so admission control is bounded: cap in-flight units and
-    // queue depth, with a wait timeout (ARCHITECTURE.md §6). Provisional defaults — tune to
-    // the deployment's memory/throughput budget.
-    let gatekeeper = SemaphoreGatekeeper::new(
-        /* max_units */ 8,
-        /* max_queue_depth */ 64,
-        Duration::from_secs(30),
-    );
-
     // Share one store handle (Arc) between the orchestrator and the skill context so MCP can
     // surface the skills without a second ingest.
     let store: Arc<SurrealStore> = Arc::new(open_store(db).await?);
     if db.is_none() {
         store.ingest_corpus(jsonl).await?;
     }
+
+    // The engine is the only thing the `mistralrs` feature changes: the real Gemma 4 served by
+    // mistral.rs vs the deterministic mock. Both implement Engine (+ Embedder), so everything
+    // downstream — orchestrator, gate, adapters, admission, skills — is identical.
+    #[cfg(feature = "mistralrs")]
+    {
+        use jesus_twin_inference::{MistralConfig, MistralEngine};
+        let model = std::env::var("JESUS_TWIN_MODEL").unwrap_or_else(|_| {
+            tracing::warn!("JESUS_TWIN_MODEL unset; using the default base checkpoint");
+            MistralConfig::defaults().model
+        });
+        tracing::info!(%model, "loading mistral.rs engine (this downloads/loads weights)…");
+        let engine = Arc::new(
+            MistralEngine::build(MistralConfig {
+                model,
+                ..MistralConfig::defaults()
+            })
+            .await?,
+        );
+        serve_with(addr, store, engine).await
+    }
+    #[cfg(not(feature = "mistralrs"))]
+    {
+        serve_with(addr, store, Arc::new(MockEngine::new())).await
+    }
+}
+
+/// Serve over `store` + `engine`. Generic over the engine so the `mistralrs` feature can swap
+/// the real Gemma in without touching the rest of the wiring.
+async fn serve_with<E>(addr: &str, store: Arc<SurrealStore>, engine: Arc<E>) -> anyhow::Result<()>
+where
+    E: jesus_twin_inference::Engine + 'static,
+{
+    // Bounded admission control for the concurrent served path (ARCHITECTURE.md §6).
+    let gatekeeper = SemaphoreGatekeeper::new(8, 64, Duration::from_secs(30));
     let registry = register_builtins(Registry::new());
     let orch = Orchestrator::new(
         store.clone(),
-        MockEngine::new(),
+        engine.clone(),
         gatekeeper,
         registry.clone(),
         CoverageGate::default(),
     );
-    let skill_ctx = Arc::new(SkillCtx::new(store, Arc::new(MockEngine::new())));
+    let skill_ctx = Arc::new(SkillCtx::new(store, engine));
     let state = AppState::new(Arc::new(orch)).with_skills(registry, skill_ctx);
 
     tracing::info!(%addr, "jesus-twin listening");

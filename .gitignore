@@ -7,3 +7,4 @@ files.zip
 
 # Rust build output (also gitignored within jesus-twin/)
 target/
+.opencode/

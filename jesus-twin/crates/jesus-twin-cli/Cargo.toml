@@ -10,6 +10,13 @@ description = "The jesus-twin binary: serve / skill <name> / chat."
 name = "jesus-twin"
 path = "src/main.rs"
 
+[features]
+# Serve the real Gemma 4 via mistral.rs instead of the deterministic MockEngine. Off by
+# default (keeps normal builds fast; avoids the candle-coupling compile). Forwards to the
+# inference crate's feature. Build/run with `--features mistralrs`.
+default = []
+mistralrs = ["jesus-twin-inference/mistralrs"]
+
 [dependencies]
 jesus-twin-core.workspace = true
 jesus-twin-api.workspace = true

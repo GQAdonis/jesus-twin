@@ -41,32 +41,26 @@ fine-tune is blocked.
    build with `--features mistralrs`. Keep the LoRA only if it improves style-by-move without
    hurting grounding.
 
-## Wiring the engine into `serve`/`ask` (the small remaining Rust change)
+## Serving the real engine (now wired)
 
-`build_orchestrator` currently hardcodes `MockEngine::new()`. To use the real engine, make it
-generic over `E: Engine` (as it already is over the gatekeeper) and construct under the
-feature:
+`serve` is engine-pluggable: built `--features mistralrs`, it loads the real Gemma 4 from
+`$JESUS_TWIN_MODEL` (the merged checkpoint) via mistral.rs; otherwise it uses `MockEngine`.
+Everything downstream (orchestrator, four adapters, admission gatekeeper, skills) is
+engine-agnostic.
 
-```rust
-#[cfg(feature = "mistralrs")]
-let engine = jesus_twin_inference::MistralEngine::build(
-    jesus_twin_inference::MistralConfig {
-        model: "/models/jesus-twin-merged".into(),     // the merged checkpoint
-        embed_model: "google/embedding-gemma".into(),
-        isq: Some(mistralrs::IsqType::Q4K),
-    },
-).await?;
-#[cfg(not(feature = "mistralrs"))]
-let engine = jesus_twin_inference::MockEngine::new();
+```bash
+JESUS_TWIN_MODEL=/abs/path/to/jesus-twin-merged \
+cargo run --release --features mistralrs --bin jesus-twin -- serve --db ./twin.db
 ```
 
-Then add `mistralrs = ["jesus-twin-inference/mistralrs"]` to `jesus-twin-cli`'s `[features]`
-and build the binary with `--features mistralrs`. The orchestrator, all four adapters, the
-admission gatekeeper, and the skills are engine-agnostic — nothing else changes.
+**See `RECIPE.md` for the full end-to-end path** (annotate → Unsloth LoRA → merge → serve),
+including the verified Unsloth Gemma 4 training script, the Gemma-4 gotchas, and the
+fork-pinning/candle-coupling notes.
 
-## Also still open (smaller, no GPU needed)
+## Already closed since this doc was written
 
-- Real **Embedder vector + RRF path** in the store (the schema/HNSW indexes already exist;
-  the `MistralEngine`/`MockEmbedder` can populate `emb_*`).
-- The **`mindmap` skill** + graph projection.
+- Real **Embedder vector + RRF path** in the store (hybrid BM25 + HNSW, RRF in Rust). ✓
+- The **`mindmap` skill** + graph projection. ✓
+- **Full skill registry over MCP** (list_skills / invoke_skill). ✓
+- The **`serve` engine swap** (above). ✓
 - Expose the **full skill registry over MCP** (currently only the `ask` tool).

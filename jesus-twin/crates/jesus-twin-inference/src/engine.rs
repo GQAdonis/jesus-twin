@@ -42,3 +42,12 @@ pub trait Engine: Send + Sync {
     /// is wired; this non-streaming form is enough for adapters to build against.
     async fn generate(&self, req: GenRequest) -> Result<String, EngineError>;
 }
+
+/// `Arc<E>` is itself an `Engine`, so one engine handle can be shared (e.g. between the
+/// orchestrator and a `SkillCtx`) without cloning the backend.
+#[async_trait]
+impl<E: Engine + ?Sized> Engine for std::sync::Arc<E> {
+    async fn generate(&self, req: GenRequest) -> Result<String, EngineError> {
+        (**self).generate(req).await
+    }
+}
