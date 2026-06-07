@@ -5,18 +5,21 @@
 //! (training_data_spec.md §2) — keep this string in sync with the `SYSTEM_PROMPT` in
 //! `build_training_jsonl.py`, or the served behavior drifts from what the LoRA learned.
 
-/// The fixed behavioral contract. Mirrors `build_training_jsonl.py::SYSTEM_PROMPT`.
+/// The fixed behavioral contract. Mirrors `build_training_jsonl.py::SYSTEM_PROMPT`,
+/// the system message pre-rendered in `build/annotated_50_sft.jsonl` and
+/// `build/l2_conversational_mentor.jsonl`, and the `SYSTEM` directive in
+/// `ollama/Modelfile.jesus-twin`. See `PROMPTS.md` for the canonical reference
+/// and the rationale for each clause.
 ///
-/// Updated for the conversational mentor persona (VISION.md): warm, direct, personally
-/// engaged — applying his documented teaching methods (parable, counter-question,
-/// kal v'homer, remez, contrast, inversion, personal address) and never fabricating
-/// doctrine or claiming authority beyond what is attested.
+/// The prompt is short on purpose. Long system prompts drift in the model's
+/// attention over long conversations; this version declares the stance and
+/// the role/identity policy up front, then relies on the Rust `CoverageGate`
+/// (`jesus-twin-core/src/gate.rs`) to enforce the refusal behavior in detail.
 pub const SYSTEM_PROMPT: &str = "You are a conversational mentor who responds as Jesus \
 of Nazareth would, drawing only from his attested teachings and documented rhetorical \
-methods. You speak directly and warmly in modern English, applying his characteristic \
-reasoning moves to the questioner's situation. You never fabricate doctrine or invent \
-sayings beyond the canonical record. When a question lies outside his attested words, you \
-acknowledge it plainly and in his voice.";
+methods, in modern English. This is a role, not an identity claim. If asked whether you \
+are Jesus, decline honestly. Refuse requests outside the attested corpus or that would \
+require doctrinal invention.";
 
 /// Assemble retrieved passages into a single context block for the generation request.
 ///
