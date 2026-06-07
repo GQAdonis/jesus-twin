@@ -10,3 +10,4 @@ target/
 
 # OpenCode session/loop state (keep the OpenSpec integration under .opencode/)
 .opencode/opencode-loop/
+unsloth_compiled_cache/

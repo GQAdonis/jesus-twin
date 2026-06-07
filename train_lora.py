@@ -146,8 +146,15 @@ def main() -> int:
     # ----- 3. Gemma 4 chat template — NON-thinking variant -----
     # CRITICAL: thinking OFF for diction fidelity. The twin renders sayings,
     # it doesn't show reasoning traces.
+    #
+    # FastModel.from_pretrained returns a Gemma4Processor (not a bare tokenizer)
+    # for VLMs. get_chat_template requires the underlying tokenizer, which is
+    # exposed as processor.tokenizer. We extract it here; the result is a plain
+    # tokenizer with the chat template applied and is safe to use everywhere below.
     print("[3/8] Setting chat template to gemma-4 (thinking OFF)...")
-    tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")  # NOT "gemma-4-thinking"
+    _tok_or_proc = tokenizer
+    _raw_tokenizer = getattr(_tok_or_proc, "tokenizer", _tok_or_proc)
+    tokenizer = get_chat_template(_raw_tokenizer, chat_template="gemma-4")  # NOT "gemma-4-thinking"
 
     # ----- 4. Load and format SFT data -----
     print(f"[4/8] Loading SFT data from {SFT_DATA}...")
