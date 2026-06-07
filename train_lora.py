@@ -217,20 +217,59 @@ def main() -> int:
     )
 
     # ----- 8. Export to GGUF (Q4_K_M, Q8_0, F16) -----
-    # Per Unsloth docs: save_pretrained_gguf produces .gguf files in OUTPUT_DIR.
-    # The gemma-4 chat template is embedded in the GGUF metadata.
+    # Gemma 4 is a VLM. Unsloth's save_pretrained_gguf first tries to convert
+    # the vision projector (--mmproj), which llama.cpp does not yet support for
+    # this architecture. We bypass that by calling the converter directly
+    # (text-only, no --mmproj) and then quantize with llama-quantize.
+    import subprocess
+
     print(f"[8/8] Exporting GGUF: {', '.join(GGUF_QUANTS)}")
-    for q in GGUF_QUANTS:
-        print(f"  - {q}...", end=" ", flush=True)
-        try:
-            model.save_pretrained_gguf(
-                str(OUTPUT_DIR),
-                tokenizer,
-                quantization_method=q,
+
+    _llama_cpp = Path.home() / ".unsloth" / "llama.cpp"
+    _converter  = _llama_cpp / "unsloth_convert_hf_to_gguf.py"
+    _quantize   = _llama_cpp / "llama-quantize"
+
+    if not _converter.exists():
+        print(f"  SKIPPED: llama.cpp converter not found at {_converter}")
+    else:
+        _bf16 = OUTPUT_DIR / "unsloth.BF16.gguf"
+        if _bf16.exists():
+            print(f"  BF16 GGUF already exists: {_bf16}")
+        else:
+            print("  Converting to BF16 GGUF (text-only, skipping vision projector)...")
+            _r = subprocess.run(
+                [
+                    "python3", str(_converter),
+                    "--outfile", str(_bf16),
+                    "--outtype", "bf16",
+                    "--split-max-size", "50G",
+                    str(OUTPUT_DIR),
+                ],
+                capture_output=True, text=True,
             )
-            print("OK")
-        except Exception as e:
-            print(f"FAILED: {e}")
+            if _r.returncode != 0:
+                print(f"  FAILED BF16 conversion:\n{_r.stderr[-500:]}")
+                _bf16 = None
+            else:
+                print(f"  BF16 GGUF: {_bf16}")
+
+        if _bf16 and _bf16.exists():
+            for q in GGUF_QUANTS:
+                if q.lower() == "bf16":
+                    continue  # already done
+                _out = OUTPUT_DIR / f"unsloth.{q.upper()}.gguf"
+                print(f"  - {q}...", end=" ", flush=True)
+                if not _quantize.exists():
+                    print(f"SKIPPED (llama-quantize not found at {_quantize})")
+                    continue
+                _qr = subprocess.run(
+                    [str(_quantize), str(_bf16), str(_out), q.upper()],
+                    capture_output=True, text=True,
+                )
+                if _qr.returncode != 0:
+                    print(f"FAILED: {_qr.stderr[-300:]}")
+                else:
+                    print("OK")
 
     print()
     print(f"✓ Training complete. Output at {OUTPUT_DIR}")
