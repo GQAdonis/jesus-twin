@@ -192,7 +192,7 @@ def main() -> int:
             lr_scheduler_type="linear",
             seed=3407,
             report_to="none",
-            use_gradient_checkpointing="unsloth",  # VRAM + long context
+            gradient_checkpointing=True,  # VRAM + long context (Unsloth patches this)
         ),
     )
 
