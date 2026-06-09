@@ -28,7 +28,7 @@ pub enum StoreError {
     NotImplemented(&'static str),
 }
 
-/// Data access for the twin. Implementations: embedded SurrealDB (in-process, RocksDB)
+/// Data access for the twin. Implementations: embedded SurrealDB (in-process, SurrealKV)
 /// now; a remote node (`ws://`) later — same trait (ARCHITECTURE.md §9).
 #[async_trait]
 pub trait Store: Send + Sync {

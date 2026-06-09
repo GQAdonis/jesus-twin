@@ -12,6 +12,20 @@ target/
 .opencode/opencode-loop/
 unsloth_compiled_cache/
 
-# Training output — large model files, not for VCS
+# Training output / downloaded models — large weight files, not for VCS.
+# Fetch them with scripts/download-models.sh (see jesus-twin/README.md).
+# (No inline comments: .gitignore only treats '#' as a comment at line start.)
+# jesus-twin-merged/ = Unsloth-merged fine-tune (degenerate — see docs/FINDINGS.md)
+# jesus-twin-base/ = base google/gemma-4-E4B-it (shipping generation model)
+# jesus-twin-embeddinggemma/ = google/embeddinggemma-300m (retrieval embedder, 768-dim)
 jesus-twin-merged/
+jesus-twin-base/
+jesus-twin-embeddinggemma/
 *.gguf
+unsloth_training_checkpoints/
+
+# Embedded SurrealDB stores (rebuild via `jesus-twin ingest --db ...`)
+jesus-twin/twin.db/
+jesus-twin/twin.db.*/
+twin.db/
+twin.db.*/

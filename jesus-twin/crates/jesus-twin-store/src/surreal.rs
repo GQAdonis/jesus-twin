@@ -1,6 +1,7 @@
 //! Embedded SurrealDB implementation of [`Store`].
 //!
-//! Backed by the in-process RocksDB engine (`kv-rocksdb`). Retrieval is **BM25-only when no
+//! Backed by SurrealKV (`kv-surrealkv`), SurrealDB's own pure-Rust embedded store.
+//! Retrieval is **BM25-only when no
 //! embedder is attached** (the graceful default) and **hybrid BM25 + HNSW-vector fused by RRF**
 //! when one is (`with_embedder`): ingest then vectorizes every saying into `emb_original` /
 //! `emb_modern` and `retrieve` fuses the full-text and vector legs (ARCHITECTURE.md §7). RRF is
@@ -13,7 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use surrealdb::Surreal;
-use surrealdb::engine::local::{Db, Mem, RocksDb};
+use surrealdb::engine::local::{Db, Mem, SurrealKv};
 use surrealdb::types::SurrealValue;
 
 use crate::embed::Embed;
@@ -40,7 +41,7 @@ pub struct SurrealStore {
 impl SurrealStore {
     /// Open (or create) a persistent store at `path` and apply the schema.
     pub async fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let db = Surreal::new::<RocksDb>(path.as_ref()).await?;
+        let db = Surreal::new::<SurrealKv>(path.as_ref()).await?;
         Self::init(db).await
     }
 

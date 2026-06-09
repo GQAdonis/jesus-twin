@@ -7,7 +7,9 @@
 //! Gemma — one process, no separate embedding service.
 //!
 //! API verified against GQAdonis/mistral.rs @ b7746a85 (mistralrs 0.8.3):
-//! `TextModelBuilder::new(id).with_isq(..).build().await -> Model`;
+//! `MultimodalModelBuilder::new(id).with_isq(..).build().await -> Model`
+//! (Gemma 4 is `Gemma4ForConditionalGeneration` — a VLM — so TextModelBuilder
+//! rejects it; MultimodalModelBuilder covers both text-only and multimodal prompts);
 //! `Model::send_chat_request(TextMessages) -> ChatCompletionResponse`
 //! (`.choices[0].message.content: Option<String>`);
 //! `EmbeddingModelBuilder::new(id).build().await -> Model`;
@@ -16,12 +18,17 @@
 
 use async_trait::async_trait;
 use mistralrs::{
-    EmbeddingModelBuilder, EmbeddingRequestBuilder, IsqType, Model, TextMessageRole, TextMessages,
-    TextModelBuilder,
+    EmbeddingModelBuilder, EmbeddingRequestBuilder, IsqType, Model, MultimodalModelBuilder,
+    RequestBuilder, TextMessageRole,
 };
 
 use crate::embed::Embedder;
 use crate::engine::{Engine, EngineError, GenRequest};
+
+/// Hard cap on generated tokens per answer. The twin renders a short, cited saying in modern
+/// English; without a bound the merged model's sampler (`do_sample=true`) rambles to the context
+/// limit — minutes of GPU time per request. Generous for the task; tighten if needed.
+const MAX_OUTPUT_TOKENS: usize = 512;
 
 /// Configuration for the real backend. Populated from `models.yaml` by the binary.
 #[derive(Debug, Clone)]
@@ -39,7 +46,7 @@ impl MistralConfig {
     pub fn defaults() -> Self {
         Self {
             model: "google/gemma-4-E4B-it".to_string(),
-            embed_model: "google/embedding-gemma".to_string(),
+            embed_model: "google/embeddinggemma-300m".to_string(),
             isq: Some(IsqType::Q4K),
         }
     }
@@ -55,7 +62,10 @@ impl MistralEngine {
     /// Build both runtimes from `config`. Loads weights (multi-GB) — call once at startup.
     /// Thinking mode is left off here and disabled per-request (diction fidelity, ARCH §5).
     pub async fn build(config: MistralConfig) -> Result<Self, EngineError> {
-        let mut gen_builder = TextModelBuilder::new(&config.model).with_logging();
+        // Gemma 4 uses `Gemma4ForConditionalGeneration` — a multimodal class —
+        // so TextModelBuilder rejects it. MultimodalModelBuilder handles both
+        // text-only and multimodal inference with the same send_chat_request API.
+        let mut gen_builder = MultimodalModelBuilder::new(&config.model).with_logging();
         if let Some(isq) = config.isq {
             gen_builder = gen_builder.with_isq(isq);
         }
@@ -87,16 +97,18 @@ impl Engine for MistralEngine {
         // turn. Question first, passages last: the grounding block is the mentor's own
         // recall (already provenance-labeled by `assemble_context`), and the end-of-prompt
         // position keeps it in the model's high-attention window. Thinking OFF so the twin
-        // renders the saying rather than emitting reasoning traces.
+        // renders the saying rather than emitting reasoning traces; sampler length capped so
+        // the merged model doesn't ramble to the context limit.
         let user_turn = if req.context.trim().is_empty() {
             req.user.clone()
         } else {
             format!("{}\n\n{}", req.user, req.context)
         };
-        let messages = TextMessages::new()
+        let messages = RequestBuilder::default()
             .add_message(TextMessageRole::System, &req.system)
             .add_message(TextMessageRole::User, user_turn)
-            .enable_thinking(false);
+            .enable_thinking(false)
+            .set_sampler_max_len(MAX_OUTPUT_TOKENS);
 
         let response = self
             .generation
