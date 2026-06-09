@@ -15,7 +15,15 @@ path = "src/main.rs"
 # default (keeps normal builds fast; avoids the candle-coupling compile). Forwards to the
 # inference crate's feature. Build/run with `--features mistralrs`.
 default = []
-mistralrs = ["jesus-twin-inference/mistralrs"]
+# `dep:async-trait` is only needed by the embedder adapter compiled under this feature.
+mistralrs = ["jesus-twin-inference/mistralrs", "dep:async-trait"]
+# NVIDIA CUDA acceleration (implies mistralrs). The release build flag on a CUDA host:
+# `cargo build --release --features cuda`. Requires the CUDA toolkit (nvcc).
+cuda = ["mistralrs", "jesus-twin-inference/cuda"]
+# Flash Attention 2 kernels (implies cuda).
+flash-attn = ["cuda", "jesus-twin-inference/flash-attn"]
+# cuDNN acceleration (implies cuda).
+cudnn = ["cuda", "jesus-twin-inference/cudnn"]
 
 [dependencies]
 jesus-twin-core.workspace = true
@@ -27,6 +35,8 @@ jesus-twin-skills.workspace = true
 
 clap.workspace = true
 tokio.workspace = true
+# Only used by the `mistralrs`-gated embedder adapter (see `mistralrs` feature).
+async-trait = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true

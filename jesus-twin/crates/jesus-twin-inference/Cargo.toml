@@ -12,6 +12,13 @@ description = "Wraps mistral.rs as a library: Gemma 4 generation + Embedding Gem
 # edge (CLAUDE.md gotcha); the mock backend covers everything otherwise.
 default = []
 mistralrs = ["dep:mistralrs", "dep:anyhow"]
+# NVIDIA CUDA acceleration for the mistral.rs backend. Implies `mistralrs`. Requires the
+# CUDA toolkit (nvcc) at build time. Build/run with `--features cuda`.
+cuda = ["mistralrs", "mistralrs/cuda"]
+# Flash Attention 2 kernels (implies cuda). Optional — longer compile; enable only if needed.
+flash-attn = ["cuda", "mistralrs/flash-attn"]
+# cuDNN acceleration (implies cuda).
+cudnn = ["cuda", "mistralrs/cudnn"]
 
 [dependencies]
 async-trait.workspace = true

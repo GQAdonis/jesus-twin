@@ -28,6 +28,61 @@ use jesus_twin_skills::{Registry, SkillCtx, register_builtins};
 use jesus_twin_store::{Store, SurrealStore};
 use uuid::Uuid;
 
+/// Adapts the inference crate's `Embedder` to the store's `Embed` trait. The store deliberately
+/// leaves this bridge to the binary (see its `embed.rs`) so the two leaf crates stay decoupled.
+/// With it attached, ingest vectorizes the corpus and retrieval fuses BM25 + the embeddinggemma
+/// vector leg via RRF instead of running BM25-only.
+#[cfg(feature = "mistralrs")]
+struct StoreEmbedder(Arc<jesus_twin_inference::MistralEngine>);
+
+#[cfg(feature = "mistralrs")]
+#[async_trait::async_trait]
+impl jesus_twin_store::Embed for StoreEmbedder {
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, jesus_twin_store::StoreError> {
+        use jesus_twin_inference::Embedder;
+        self.0
+            .embed(texts)
+            .await
+            .map_err(|e| jesus_twin_store::StoreError::Embedding(e.to_string()))
+    }
+}
+
+/// Build the mistral.rs engine from env: `JESUS_TWIN_MODEL` (merged Gemma 4 checkpoint) and
+/// `JESUS_TWIN_EMBED_MODEL` (embeddinggemma dir). Both fall back to the HF ids in
+/// `MistralConfig::defaults()`; point them at local dirs for an offline release run. Loads
+/// weights (multi-GB) — call once. Shared by serve/ask/ingest so all three get the same
+/// 4-bit (ISQ Q4K) generation model and the same embedder.
+#[cfg(feature = "mistralrs")]
+async fn build_mistral_engine() -> anyhow::Result<Arc<jesus_twin_inference::MistralEngine>> {
+    use jesus_twin_inference::{MistralConfig, MistralEngine};
+    let defaults = MistralConfig::defaults();
+    let model = std::env::var("JESUS_TWIN_MODEL").unwrap_or_else(|_| {
+        tracing::warn!("JESUS_TWIN_MODEL unset; using the default base checkpoint");
+        defaults.model.clone()
+    });
+    let embed_model = std::env::var("JESUS_TWIN_EMBED_MODEL").unwrap_or_else(|_| {
+        tracing::warn!("JESUS_TWIN_EMBED_MODEL unset; using the default embeddinggemma id");
+        defaults.embed_model.clone()
+    });
+    // In-situ quantization at load. `JESUS_TWIN_ISQ=none` serves full precision (diagnostic /
+    // higher-VRAM hosts); anything else keeps the default 4-bit Q4K from `MistralConfig`.
+    let isq = match std::env::var("JESUS_TWIN_ISQ").ok().as_deref() {
+        Some("none") | Some("off") | Some("") => {
+            tracing::warn!("JESUS_TWIN_ISQ=none — serving full precision (no ISQ)");
+            None
+        }
+        _ => defaults.isq,
+    };
+    tracing::info!(%model, %embed_model, ?isq, "loading mistral.rs engine (downloads/loads weights)…");
+    let engine = MistralEngine::build(MistralConfig {
+        model,
+        embed_model,
+        isq,
+    })
+    .await?;
+    Ok(Arc::new(engine))
+}
+
 #[derive(Parser)]
 #[command(
     name = "jesus-twin",
@@ -130,35 +185,31 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(addr: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
-    // Share one store handle (Arc) between the orchestrator and the skill context so MCP can
-    // surface the skills without a second ingest.
-    let store: Arc<SurrealStore> = Arc::new(open_store(db).await?);
-    if db.is_none() {
-        store.ingest_corpus(jsonl).await?;
-    }
-
     // The engine is the only thing the `mistralrs` feature changes: the real Gemma 4 served by
-    // mistral.rs vs the deterministic mock. Both implement Engine (+ Embedder), so everything
-    // downstream — orchestrator, gate, adapters, admission, skills — is identical.
+    // mistral.rs vs the deterministic mock. Both implement Engine, so everything downstream —
+    // orchestrator, gate, adapters, admission, skills — is identical. The real build also
+    // attaches the engine as the store's embedder (embeddinggemma), upgrading retrieval from
+    // BM25-only to hybrid BM25 + vector + RRF.
     #[cfg(feature = "mistralrs")]
     {
-        use jesus_twin_inference::{MistralConfig, MistralEngine};
-        let model = std::env::var("JESUS_TWIN_MODEL").unwrap_or_else(|_| {
-            tracing::warn!("JESUS_TWIN_MODEL unset; using the default base checkpoint");
-            MistralConfig::defaults().model
-        });
-        tracing::info!(%model, "loading mistral.rs engine (this downloads/loads weights)…");
-        let engine = Arc::new(
-            MistralEngine::build(MistralConfig {
-                model,
-                ..MistralConfig::defaults()
-            })
-            .await?,
-        );
+        // Engine first so it can also drive the store's vector leg; ingest *after* attaching it
+        // so an in-memory corpus is vectorized (a persistent `--db` must be ingested likewise).
+        let engine = build_mistral_engine().await?;
+        let store: Arc<SurrealStore> =
+            Arc::new(open_store(db).await?.with_embedder(Arc::new(StoreEmbedder(engine.clone()))));
+        if db.is_none() {
+            store.ingest_corpus(jsonl).await?;
+        }
         serve_with(addr, store, engine).await
     }
     #[cfg(not(feature = "mistralrs"))]
     {
+        // Share one store handle (Arc) between the orchestrator and the skill context so MCP can
+        // surface the skills without a second ingest. No real embedder → BM25-only retrieval.
+        let store: Arc<SurrealStore> = Arc::new(open_store(db).await?);
+        if db.is_none() {
+            store.ingest_corpus(jsonl).await?;
+        }
         serve_with(addr, store, Arc::new(MockEngine::new())).await
     }
 }
@@ -187,9 +238,9 @@ where
     Ok(())
 }
 
-/// Build the orchestrator over `gatekeeper`: open the store (ingest into an in-memory store,
-/// or use a pre-ingested `--db`) with the mock engine (RAG-first build). Used by `ask`.
-async fn build_orchestrator<G: Gatekeeper + 'static>(
+/// Build the orchestrator over `gatekeeper` with the mock engine (RAG-first build, no weights).
+/// Used by `skill` and `retrieve` where the real engine isn't needed.
+async fn build_orchestrator_mock<G: Gatekeeper + 'static>(
     db: Option<&str>,
     jsonl: &str,
     gatekeeper: G,
@@ -240,7 +291,21 @@ async fn skill(
 
 /// Open a store (persistent if `db` is set, else in-memory) and ingest the corpus.
 async fn ingest(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    // With the `mistralrs` feature, attach the embeddinggemma embedder so ingest also writes the
+    // HNSW vectors (`emb_original`/`emb_modern`) that hybrid retrieval needs — re-ingesting a
+    // BM25-only `--db` upgrades it in place (embed_all is idempotent). Loading the engine here
+    // also loads the generation model; that's wasted work for a pure ingest, but keeps one
+    // engine constructor. Without the feature, ingest stays BM25-only.
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
     let store = open_store(db).await?;
+
     let count = store.ingest_corpus(jsonl).await?;
     // Drop the store and yield so the embedded engine settles before exit (surrealdb#2399);
     // avoids a cosmetic "transaction dropped" log. Data is already committed per-statement.
@@ -269,13 +334,51 @@ async fn retrieve(query: &str, db: Option<&str>, limit: usize) -> anyhow::Result
 }
 
 /// Run the full RAG orchestrator for one question and print the resulting event stream.
+/// Uses the real Gemma 4 engine when built `--features mistralrs` (set `JESUS_TWIN_MODEL`);
+/// falls back to the deterministic mock otherwise.
 async fn ask(query: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
-    // One-shot CLI: no concurrency, so the open (always-admit) gatekeeper is appropriate.
-    let orch = build_orchestrator(db, jsonl, OpenGatekeeper).await?;
     let session = Session::new(Uuid::new_v4()).with_turn(Turn::new(Role::User, query));
-    for event in orch.run(&session).await? {
-        print_event(&event);
+
+    #[cfg(feature = "mistralrs")]
+    {
+        // Engine first so it doubles as the store's embedder (hybrid retrieval), then ingest.
+        let engine = build_mistral_engine().await?;
+        let store = open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine.clone())));
+        if db.is_none() {
+            store.ingest_corpus(jsonl).await?;
+        }
+        let orch = Orchestrator::new(
+            store,
+            engine,
+            OpenGatekeeper,
+            register_builtins(Registry::new()),
+            CoverageGate::default(),
+        );
+        for event in orch.run(&session).await? {
+            print_event(&event);
+        }
     }
+
+    #[cfg(not(feature = "mistralrs"))]
+    {
+        let store = open_store(db).await?;
+        if db.is_none() {
+            store.ingest_corpus(jsonl).await?;
+        }
+        let orch = Orchestrator::new(
+            store,
+            MockEngine::new(),
+            OpenGatekeeper,
+            register_builtins(Registry::new()),
+            CoverageGate::default(),
+        );
+        for event in orch.run(&session).await? {
+            print_event(&event);
+        }
+    }
+
     Ok(())
 }
 

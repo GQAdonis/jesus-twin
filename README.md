@@ -27,6 +27,22 @@ with a citation).** Rust changes the *implementation*, not that split.
 
 ---
 
+## Status — the Rust service runs (RAG-first release)
+
+The agent service is **operational on GPU**: a CUDA build of `jesus-twin` serves **Gemma 4
+E4B at 4-bit (ISQ Q4K)** via mistral.rs, with **embeddinggemma** driving hybrid BM25+vector
+retrieval over an embedded SurrealDB store, and every answer carries verse **citations**. It
+ships **RAG-first on the base model** (ARCHITECTURE.md step 3); the Unsloth fine-tune is
+deferred (it over-trained on too little data — see [`docs/FINDINGS.md`](./docs/FINDINGS.md)).
+
+- **Build & run:** [`jesus-twin/README.md`](./jesus-twin/README.md) → "Running the release".
+- **Get the models:** `HF_TOKEN=hf_xxx scripts/download-models.sh` (base Gemma 4 +
+  embeddinggemma; the latter is gated — accept its license first).
+- **What we found / decided:** [`docs/FINDINGS.md`](./docs/FINDINGS.md) and
+  [`MEMORY.md`](./MEMORY.md).
+
+---
+
 ## 1. Model choice — small models for fine-tuning
 
 ### The honest recommendation

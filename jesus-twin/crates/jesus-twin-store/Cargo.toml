@@ -22,7 +22,9 @@ tokio.workspace = true
 # Pinned to =3.1.1: 3.1.2 depends on `surrealmx ^0.21.0`, which is unpublished on crates.io
 # (only <=0.18 exists), so 3.1.2 currently fails to resolve. Re-evaluate when a fixed patch
 # ships. (validated 2026-06-02)
-surrealdb = { version = "=3.1.1", features = ["kv-rocksdb", "kv-mem"] }
+# kv-surrealkv: SurrealDB's own pure-Rust embedded store — persistent, no C++ build deps.
+# Switch back to kv-rocksdb only if you need RocksDB-specific tuning and have GCC ≥12.
+surrealdb = { version = "=3.1.1", features = ["kv-surrealkv", "kv-mem"] }
 
 [dev-dependencies]
 tempfile = "3"

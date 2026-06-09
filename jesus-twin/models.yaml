@@ -3,17 +3,27 @@
 # Placeholder values — re-verify model ids and dimensions before use.
 
 generation:
-  # Unsloth-MERGED Gemma 4 E4B checkpoint (runtime LoRA for Gemma 4 is unsupported —
-  # serve the merged model). Use the HF id for the base, or a local path for the merge.
+  # RELEASE = RAG-first on the BASE Gemma 4 E4B-it (ARCHITECTURE.md step 3). The Unsloth-MERGED
+  # fine-tune at jesus-twin-merged/ is currently DEGENERATE (over-trained on 75 SFT examples at
+  # lr 2e-4 x 3 epochs — collapses to looping output in mistral.rs *and* llama.cpp). Deferred
+  # until annotation yields enough data for a stable style LoRA. Base + retrieval is coherent and
+  # grounded today (verified 2026-06-09). Set JESUS_TWIN_MODEL to local_path to run offline.
   model_id: "google/gemma-4-E4B-it"
-  local_path: null            # e.g. "/models/jesus-twin-merged"
+  local_path: "/usr/local/src/jesus-twin/jesus-twin-base"
   thinking_mode: false        # OFF for diction fidelity
-  isq: "Q4K"                  # in-situ quantization at load
+  isq: "Q4K"                  # in-situ 4-bit quantization at load (set JESUS_TWIN_ISQ=none for BF16)
 
 embedding:
-  # Same runtime as generation — no separate embedding service.
-  model_id: "google/embedding-gemma"
+  # Same runtime as generation — no separate embedding service. Gated on HF (manual approval);
+  # download once and serve from a local path so serve/ingest run offline. Output dim 768.
+  model_id: "google/embeddinggemma-300m"
+  local_path: "/usr/local/src/jesus-twin/jesus-twin-embeddinggemma"
   dimension: 768              # MUST match jesus-twin-store::schema::EMBEDDING_DIM
 
 device:
   kind: "auto"                # auto | cpu | metal | cuda
+
+# NOTE: models.yaml is reference config; the CLI reads JESUS_TWIN_MODEL / JESUS_TWIN_EMBED_MODEL
+# for the two local paths above. Build the release binary with `--features cuda` (implies the
+# mistralrs backend). The embedder is attached to the store in serve/ask/ingest, so re-`ingest`
+# a persistent --db once after enabling it to populate the HNSW vectors.
