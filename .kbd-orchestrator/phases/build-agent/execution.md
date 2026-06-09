@@ -72,3 +72,22 @@ This was a **training/serving drift risk**: if the LoRA trained on the study-aid
 ## Artifacts Not In Plan But Discovered
 
 - `docs/policy-spec.md` — 938-line safety policy spec (complements the work)
+---
+
+## Execution — fix-context-attribution (appended 2026-06-09)
+
+**Backend:** `openspec` (change `fix-context-attribution`). Single-author Claude Code edits.
+
+### Dispatch
+Stop retrieved RAG passages reading as user speech. Tasks per
+`openspec/changes/fix-context-attribution/tasks.md`.
+
+Edit set:
+1. `jesus-twin-core/src/prompt.rs` — SYSTEM_PROMPT provenance clause + `assemble_context`
+   provenance-framed instruction line + regression test.
+2. Parity mirrors: `build_training_jsonl.py`, `ollama/Modelfile.jesus-twin`, `PROMPTS.md`.
+3. `jesus-twin-inference/src/mistral.rs:92` — question-first, passages-last.
+4. `jesus-twin-inference/src/mock.rs` — mirror order; keep tests green.
+
+QA gate: `cargo fmt` + `cargo clippy -D warnings` + `cargo test`. artifact-refiner optional
+(prompt-string change, one test).

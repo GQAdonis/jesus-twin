@@ -83,14 +83,19 @@ impl MistralEngine {
 #[async_trait]
 impl Engine for MistralEngine {
     async fn generate(&self, req: GenRequest) -> Result<String, EngineError> {
-        // System contract, then retrieved context + the user ask in one user turn. Thinking
-        // OFF so the twin renders the saying rather than emitting reasoning traces.
+        // System contract, then the user ask followed by the grounding block in one user
+        // turn. Question first, passages last: the grounding block is the mentor's own
+        // recall (already provenance-labeled by `assemble_context`), and the end-of-prompt
+        // position keeps it in the model's high-attention window. Thinking OFF so the twin
+        // renders the saying rather than emitting reasoning traces.
+        let user_turn = if req.context.trim().is_empty() {
+            req.user.clone()
+        } else {
+            format!("{}\n\n{}", req.user, req.context)
+        };
         let messages = TextMessages::new()
             .add_message(TextMessageRole::System, &req.system)
-            .add_message(
-                TextMessageRole::User,
-                format!("{}\n\n{}", req.context, req.user),
-            )
+            .add_message(TextMessageRole::User, user_turn)
             .enable_thinking(false);
 
         let response = self

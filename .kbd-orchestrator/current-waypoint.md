@@ -1,30 +1,38 @@
 # Current Waypoint
 
-**Phase:** build-agent  
-**Change:** rag-prototype  
-**Status:** in_progress  
-**Last updated:** 2026-06-05
+**Phase:** build-agent
+**Change:** hebrew-bible (next candidate)
+**Status:** fix-context-attribution archived
+**Last updated:** 2026-06-09
+
+## Just completed
+
+`fix-context-attribution` — **archived** to
+`openspec/changes/archive/2026-06-09-fix-context-attribution/`. Capability spec
+`grounded-generation` synced to `openspec/specs/` (validates). Live model re-run
+operator-confirmed at archive time.
 
 ## Next action
 
-Implement Change 1: `rag-prototype` — RAG-First Grounded Answer Engine.
-
-**Parallel opportunity:** `annotation-guide` can start simultaneously (no shared dependency).
+No active OpenSpec changes. Candidates:
+- `hebrew-bible` — Tanakh source tool (depends on `rag-prototype`, complete); `ingest_tanakh.py`
+  already drafted.
+- Resume annotation toward the ≥300-row gate that unblocks the deferred `lora-train`.
 
 ## Blockers
 
-- Annotation blocked (0 SFT rows) — unblocks after `annotate-50` completes, not needed for `rag-prototype`
-- `rag-prototype` and `annotation-guide` have no blockers
+- None active. `lora-train` deferred (data gate); `production-lora` blocked on it.
 
 ## Progress
 
 | Change | Status |
 |--------|--------|
-| `rag-prototype` | pending |
-| `annotation-guide` | pending |
-| `annotate-50` | blocked (needs annotation-guide) |
-| `mentor-examples` | blocked (needs annotation-guide) |
-| `lora-train` | blocked (needs annotate-50 + mentor-examples) |
-| `eval-suite` | blocked (needs annotate-50) |
-| `hebrew-bible` | blocked (needs rag-prototype) |
+| `rag-prototype` | complete |
+| `annotation-guide` | complete |
+| `annotate-50` | complete |
+| `mentor-examples` | complete |
+| `eval-suite` | complete |
+| `fix-context-attribution` | planned ← **next** |
+| `lora-train` | deferred (assessment: gate on ≥300 annotated rows; lr 2e-4×3 on 75 collapsed) |
+| `hebrew-bible` | pending (needs rag-prototype) |
 | `production-lora` | blocked (needs lora-train + eval-suite) |

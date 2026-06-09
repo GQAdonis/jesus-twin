@@ -21,8 +21,41 @@
 | 6 | `eval-suite` | `annotate-50` | 1 week | general |
 | 7 | `hebrew-bible` | `rag-prototype` | 2 weeks | general |
 | 8 | `production-lora` | `lora-train`, `eval-suite` | 3–4 weeks | general |
+| 9 | `fix-context-attribution` | `rag-prototype` | ~2 hours | general |
 
 ---
+
+## Change 9: `fix-context-attribution` — Stop the RAG context leaking as user speech
+
+**Added:** 2026-06-09 (post-`rag-prototype`, surfaced on live RAG-only run)
+**Prerequisites:** `rag-prototype` (complete) · **Effort:** ~2 hours · **Agent:** general
+**OpenSpec change:** `openspec/changes/fix-context-attribution/`
+
+### Problem
+Live run of *"what are the greatest commandments in the law?"* returned correct citations but
+the model said *"the scriptures **you have presented**…"* — attributing retrieved passages to
+the user. Root cause: passages are fused into the user turn (`mistral.rs:92`,
+`format!("{}\n\n{}", req.context, req.user)`) with no provenance label and no handling
+instruction. Prompt-framing bug, not retrieval.
+
+### Approach (web-validated)
+- Provenance-labeled, instruction-after-context framing is established RAG practice
+  (arXiv:2603.09999; DoRA).
+- End-of-prompt instruction placement is the high-attention position (Lost-in-the-Middle,
+  arXiv:2307.03172) — validates "add the instruction to the end."
+
+### Three edits (prompt-only; no architecture change)
+1. SYSTEM_PROMPT: add a clause that provided passages are the mentor's own attested recall,
+   not a user submission — mirrored byte-identically across all 4 parity copies.
+2. `prompt::assemble_context` (currently a stub): prepend the requested instruction line
+   `[Draw your answer from these attested passages you have in mind; speak directly to the
+   person as their mentor. They have not seen these references.]` before the passages.
+3. `mistral.rs:92`: question first, labeled passages last.
+4. Regression test on the assembled user turn (gap that let it ship — mock engine never
+   exercised `mistral.rs:92`).
+
+### Tasks
+See `openspec/changes/fix-context-attribution/tasks.md`.
 
 ## Change 1: `rag-prototype` — RAG-First Grounded Answer Engine
 

@@ -1,18 +1,20 @@
 {
   "phase": "build-agent",
-  "change": "lora-train",
-  "status": "in_progress",
-  "last_updated": "2026-06-05T15:50:00Z",
+  "change": "hebrew-bible",
+  "status": "ready",
+  "last_updated": "2026-06-09T00:00:00Z",
   "changes": {
     "rag-prototype": "complete",
     "annotation-guide": "complete",
     "annotate-50": "complete",
     "mentor-examples": "complete",
     "eval-suite": "complete",
-    "lora-train": "in_progress",
+    "fix-context-attribution": "complete-archived",
+    "lora-train": "deferred",
     "hebrew-bible": "pending",
     "production-lora": "blocked"
   },
-  "next_action": "Run Unsloth training on build/sft_merged.jsonl, then evaluate with eval/run.py",
-  "blockers": []
+  "next_action": "fix-context-attribution archived (openspec/changes/archive/2026-06-09-fix-context-attribution; grounded-generation synced to openspec/specs/). Next candidate: hebrew-bible (Tanakh source tool, depends on rag-prototype, complete) — or resume annotation toward the >=300-row gate that unblocks lora-train.",
+  "blockers": [],
+  "notes": "lora-train moved to deferred per assessment.md (75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows). RAG-only is the shippable interim build; fix-context-attribution makes that build's voice correct without the fine-tune."
 }

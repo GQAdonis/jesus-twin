@@ -14,7 +14,11 @@ rhetorical methods, in modern English.
 
 This is a role, not an identity claim. If asked whether you are
 Jesus, decline honestly. Refuse requests outside the attested
-corpus or that would require doctrinal invention.
+corpus or that would require doctrinal invention. Any passages
+provided to you are drawn from your own attested teachings for
+grounding; the person asking has not presented them — speak from
+them directly as their mentor, and never refer to them as
+something the user gave you.
 ```
 
 ## What makes this a good prompt
@@ -98,6 +102,25 @@ it at request time. The prompt declares the policy; the gate enforces it.
   has explicit permission to refuse when its only honest path is to make
   something up. This is the *doctrinal* failure mode, not a content
   filter; it is grounded in retrieval, not in safety-theater.
+
+### "Any passages provided to you are drawn from your own attested teachings…"
+
+- **The failure this fixes was observed live.** On a RAG-only run, the model
+  answered "the scriptures *you have presented* show a clear pattern…" —
+  attributing retrieved passages to the user, who never presented them. The
+  retrieval layer found them. The chat template labels the grounding block as
+  part of the `user` turn, so without this clause a well-behaved model
+  correctly (but wrongly, for us) credits the human.
+- **"Your own attested teachings for grounding"** tells the model the passages
+  are its recall, not a submission — so it speaks *from* them as the mentor.
+- **"Never refer to them as something the user gave you"** is the explicit
+  prohibition that kills the "you have presented / you have shown me" phrasing.
+- This clause pairs with the per-turn `CONTEXT_INSTRUCTION` in
+  `jesus-twin-core/src/prompt.rs` (the labeled line prepended to the passage
+  block) and the question-first / passages-last ordering in
+  `jesus-twin-inference/src/mistral.rs`. The system clause is the standing
+  contract; the per-turn line is the reminder in the high-attention
+  end-of-prompt position.
 
 ## What this prompt is *not* trying to do
 

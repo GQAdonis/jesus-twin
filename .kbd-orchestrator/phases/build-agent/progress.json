@@ -16,7 +16,8 @@
     "annotate-50": "complete",
     "mentor-examples": "complete",
     "eval-suite": "complete",
-    "lora-train": "in_progress",
+    "fix-context-attribution": "complete-archived",
+    "lora-train": "deferred",
     "hebrew-bible": "in_progress",
     "production-lora": "blocked"
   },
@@ -29,7 +30,9 @@
     "ingest_tanakh.py: Tanakh corpus fetcher (JPS 1917) for hebrew-bible change",
     "Move taxonomy in annotation is broader than 9 methods (M01-M18) — annotation guide should be updated",
     "docs/policy-spec.md: 938-line safety policy spec (complements eval-suite)",
-    "System prompts aligned across: prompt.rs, build_training_jsonl.py, both SFT files, l2 file"
+    "System prompts aligned across: prompt.rs, build_training_jsonl.py, both SFT files, l2 file",
+    "fix-context-attribution (2026-06-09): fixed RAG context leaking as user speech ('you have presented'). 3 prompt-only edits — SYSTEM_PROMPT provenance clause (parity across prompt.rs/build_training_jsonl.py/Modelfile/PROMPTS.md), CONTEXT_INSTRUCTION line in prompt::assemble_context, question-first/passages-last reorder in mistral.rs. 3 new tests, 16 green, clippy clean, mistralrs feature compiles, openspec validate passed. Live re-run on model is the only remaining (USER) step.",
+    "lora-train moved to DEFERRED: 75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows (assessment.md)"
   ],
-  "last_updated": "2026-06-05T15:55:00Z"
+  "last_updated": "2026-06-09T00:00:00Z"
 }

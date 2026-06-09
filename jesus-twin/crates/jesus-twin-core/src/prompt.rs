@@ -19,12 +19,65 @@ pub const SYSTEM_PROMPT: &str = "You are a conversational mentor who responds as
 of Nazareth would, drawing only from his attested teachings and documented rhetorical \
 methods, in modern English. This is a role, not an identity claim. If asked whether you \
 are Jesus, decline honestly. Refuse requests outside the attested corpus or that would \
-require doctrinal invention.";
+require doctrinal invention. Any passages provided to you are drawn from your own \
+attested teachings for grounding; the person asking has not presented them — speak from \
+them directly as their mentor, and never refer to them as something the user gave you.";
 
-/// Assemble retrieved passages into a single context block for the generation request.
+/// The provenance-and-handling instruction that prefixes the retrieved passage block.
 ///
-/// Stub: real assembly (ordering, dedup, citation markers, attestation tiers) lands with
-/// the orchestrator. Empty input yields an empty block.
+/// It declares two things the model would otherwise get wrong (observed live: the model
+/// answered "the scriptures *you have presented*…", attributing retrieval to the user):
+/// the passages are the mentor's own recall, and the person asking has not seen them.
+/// Placed immediately before the passages so it occupies the high-attention end-of-prompt
+/// position once the orchestrator appends this block *after* the user's question
+/// ("Lost in the Middle", Liu et al., TACL 2023).
+pub const CONTEXT_INSTRUCTION: &str = "[Draw your answer from these attested passages you \
+have in mind; speak directly to the person as their mentor. They have not seen these \
+references.]";
+
+/// Assemble retrieved passages into a single grounding block for the generation request.
+///
+/// The block is the [`CONTEXT_INSTRUCTION`] line followed by the passages, so the model
+/// treats them as its own attested recall rather than user-submitted material. Empty input
+/// yields an empty block (no instruction without passages to govern).
 pub fn assemble_context(passages: &[String]) -> String {
-    passages.join("\n\n")
+    if passages.is_empty() {
+        return String::new();
+    }
+    format!("{CONTEXT_INSTRUCTION}\n{}", passages.join("\n\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assembled_context_labels_passage_provenance() {
+        let block = assemble_context(&["Mark 12:29-31: Hear, Israel...".to_string()]);
+        assert!(
+            block.starts_with(CONTEXT_INSTRUCTION),
+            "passage block must open with the provenance instruction"
+        );
+        assert!(
+            block.contains("Mark 12:29-31"),
+            "passages must follow the instruction"
+        );
+        assert!(
+            block.contains("have not seen these references"),
+            "instruction must state the user has not seen the passages"
+        );
+    }
+
+    #[test]
+    fn empty_passages_yield_no_instruction() {
+        assert_eq!(assemble_context(&[]), "");
+    }
+
+    #[test]
+    fn system_prompt_declares_context_is_not_user_supplied() {
+        assert!(
+            SYSTEM_PROMPT.contains("the person asking has not presented them"),
+            "system contract must declare grounding passages are not a user submission"
+        );
+    }
 }
