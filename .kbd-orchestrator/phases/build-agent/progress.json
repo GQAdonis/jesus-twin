@@ -32,7 +32,8 @@
     "docs/policy-spec.md: 938-line safety policy spec (complements eval-suite)",
     "System prompts aligned across: prompt.rs, build_training_jsonl.py, both SFT files, l2 file",
     "fix-context-attribution (2026-06-09): fixed RAG context leaking as user speech ('you have presented'). 3 prompt-only edits — SYSTEM_PROMPT provenance clause (parity across prompt.rs/build_training_jsonl.py/Modelfile/PROMPTS.md), CONTEXT_INSTRUCTION line in prompt::assemble_context, question-first/passages-last reorder in mistral.rs. 3 new tests, 16 green, clippy clean, mistralrs feature compiles, openspec validate passed. Live re-run on model is the only remaining (USER) step.",
-    "lora-train moved to DEFERRED: 75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows (assessment.md)"
+    "lora-train moved to DEFERRED: 75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows (assessment.md)",
+    "Optimal-method assessment (2026-06-09, assessment.md addendum): hybrid approach confirmed best fit for the never-fabricate/citation/auditability constraints vs frontier prompt-persona, deep persona FT (CharacterBot), and agentic-memory methods — NOT universally optimal (frontier+RAG wins on warmth/effort); differentiator is the honesty architecture. Qwen3-4B vs Gemma 4: Gemma caused the toolchain pain (VLM class, mmproj GGUF, merge-only LoRA) but the collapse was data/recipe, not base. Keep Gemma for serving; at retrain (>=300 rows) train BOTH, default Qwen3-4B first, eval suite decides. Sycophancy check: adversarial, score 0.0."
   ],
   "last_updated": "2026-06-09T00:00:00Z"
 }

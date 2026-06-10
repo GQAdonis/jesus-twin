@@ -1,7 +1,7 @@
 {
   "phase": "build-agent",
-  "change": "hebrew-bible",
-  "status": "ready",
+  "change": "wave-1-gate-calibration",
+  "status": "planned",
   "last_updated": "2026-06-09T00:00:00Z",
   "changes": {
     "rag-prototype": "complete",
@@ -10,11 +10,22 @@
     "mentor-examples": "complete",
     "eval-suite": "complete",
     "fix-context-attribution": "complete-archived",
-    "lora-train": "deferred",
-    "hebrew-bible": "pending",
-    "production-lora": "blocked"
+    "lora-train": "superseded-by-retrain-dual-base",
+    "gate-calibration": "assess-done-instrument-built-awaiting-gpu-run",
+    "modern-legs-v1": "planned-wave-1",
+    "hebrew-bible": "planned-wave-1",
+    "eval-life-questions": "planned-wave-1",
+    "annotation-guide-fix": "planned-wave-1",
+    "principle-index-v1": "planned-wave-2",
+    "principle-tier": "planned-wave-2",
+    "gospel-context-kb": "planned-wave-2",
+    "episodic-memory": "planned-wave-2",
+    "annotation-300": "wave-3-human",
+    "retrain-dual-base": "wave-3-blocked-on-human-rows",
+    "honesty-surface-ui": "wave-3-blocked-on-ui",
+    "production-lora": "superseded-by-retrain-dual-base"
   },
-  "next_action": "fix-context-attribution archived (openspec/changes/archive/2026-06-09-fix-context-attribution; grounded-generation synced to openspec/specs/). Next candidate: hebrew-bible (Tanakh source tool, depends on rag-prototype, complete) — or resume annotation toward the >=300-row gate that unblocks lora-train.",
+  "next_action": "GPU BOX: run the gate calibration per docs/HANDOFF-gate-calibration.md (ingest --features mistralrs into twin.db, then `gate calibrate --db ../twin.db`), report the 4 leg-agreement distributions, then resume the change at PLAN (preregistered tier rule). Instrument is built + committed; Assess is HALTed. Meanwhile (GPU-independent, parallel): modern-legs-v1, hebrew-bible, eval tier benchmark, annotation-guide fix.",
   "blockers": [],
   "notes": "lora-train moved to deferred per assessment.md (75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows). RAG-only is the shippable interim build; fix-context-attribution makes that build's voice correct without the fine-tune."
 }

@@ -1,27 +1,41 @@
 # Current Waypoint
 
 **Phase:** build-agent
-**Change:** hebrew-bible (next candidate)
-**Status:** fix-context-attribution archived
+**Change:** Wave 1 — gate-calibration first
+**Status:** planned (plan.md Amendment 1, 2026-06-09)
 **Last updated:** 2026-06-09
 
-## Just completed
+## The plan (automation-first restructure)
 
-`fix-context-attribution` — **archived** to
-`openspec/changes/archive/2026-06-09-fix-context-attribution/`. Capability spec
-`grounded-generation` synced to `openspec/specs/` (validates). Live model re-run
-operator-confirmed at archive time.
+**Goal:** the twin answers ANY life question — grounded and authentic — via the three-tier
+grounding router. **Premise correction (gate-calibration doc):** the gate is currently
+*disabled* (`DEFAULT_COVERAGE_THRESHOLD = 0.0`) — out-of-corpus questions are answered
+silently. Wave 1 fixes that live bright-line violation first.
+
+```
+WAVE 1 (pure dev, zero human work): 10a gate-calibration (leg-agreement tiers, PMPO halts,
+        per docs/gate-calibration-claude-code-prompt.md) · 19 modern-legs-v1 (doc2query
+        expansion, retrieval-only) · 12 hebrew-bible · 15 eval tier benchmark · guide fix
+WAVE 2 (zero human work): 11 principle-index-v1 (machine-tagged) · 10b principle-tier
+        (T2 principle-bridging) · 13 gospel-context-kb (auto attestation v1) · 17 memory
+        ── "relatively close" checkpoint: any life question, real citations, no human hours ──
+WAVE 3 (the hard manual work): 14 annotation-300 · tag/draft review-and-promote ·
+        16 retrain-dual-base (human rows only) · 18 honesty-surface-ui · scholarly attestation
+```
+
+**Safety rule (Waves 1–2):** machine-generated text steers *retrieval only* — never
+displayed (display = `text_original`), never trained (SFT = human-verified xlsx rows only).
 
 ## Next action
 
-No active OpenSpec changes. Candidates:
-- `hebrew-bible` — Tanakh source tool (depends on `rag-prototype`, complete); `ingest_tanakh.py`
-  already drafted.
-- Resume annotation toward the ≥300-row gate that unblocks the deferred `lora-train`.
+Start `gate-calibration` Phase 1 (Assess): verify the doc's four findings against current
+source, build the `gate calibrate` CLI instrument, run the 95-query calibration, report
+distributions — then HALT for approval per the PMPO discipline in the doc.
 
 ## Blockers
 
-- None active. `lora-train` deferred (data gate); `production-lora` blocked on it.
+- `retrain-dual-base` ← Wave 3 (≥300 human-verified rows; machine drafts never train).
+- `honesty-surface-ui` ← React UI does not exist yet.
 
 ## Progress
 

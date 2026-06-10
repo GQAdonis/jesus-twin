@@ -157,6 +157,35 @@ enum Command {
     },
     /// Interactive chat REPL.
     Chat,
+    /// Gate diagnostics.
+    Gate {
+        #[command(subcommand)]
+        cmd: GateCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum GateCmd {
+    /// Run every eval query through the retrieval legs and write a leg-agreement report
+    /// (`docs/gate-calibration-claude-code-prompt.md`, Assess phase). Read-only: it does not
+    /// change retrieval or the gate. Run with `--features mistralrs` + an ingested `--db` on
+    /// the GPU box for the real 4-leg numbers; without the feature it reports the BM25-only
+    /// path (1–2 legs) and says so.
+    Calibrate {
+        /// Directory holding the eval JSONL files (grounding, refusal, method-application,
+        /// boundary).
+        #[arg(long, default_value = "../eval")]
+        eval_dir: String,
+        /// Store directory; must already be ingested (with embeddings for the 4-leg path).
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+        /// Corpus for an in-memory store when `--db` is omitted.
+        #[arg(long, default_value = "../build/rag_corpus.jsonl")]
+        jsonl: String,
+        /// Where to write the calibration report JSONL.
+        #[arg(long, default_value = "../eval/out/gate-calibration.jsonl")]
+        out: String,
+    },
 }
 
 #[tokio::main]
@@ -177,6 +206,15 @@ async fn main() -> anyhow::Result<()> {
             db,
             jsonl,
         } => skill(name.as_deref(), &args, db.as_deref(), &jsonl).await,
+        Command::Gate {
+            cmd:
+                GateCmd::Calibrate {
+                    eval_dir,
+                    db,
+                    jsonl,
+                    out,
+                },
+        } => gate_calibrate(&eval_dir, db.as_deref(), &jsonl, &out).await,
         Command::Chat => {
             // TODO(build step 3+): drive the orchestrator interactively.
             anyhow::bail!("chat REPL not yet implemented");
@@ -242,7 +280,9 @@ where
 }
 
 /// Build the orchestrator over `gatekeeper` with the mock engine (RAG-first build, no weights).
-/// Used by `skill` and `retrieve` where the real engine isn't needed.
+/// Retained as the canonical mock-orchestrator constructor for future subcommands; not yet
+/// called (pre-existing — predates the gate-calibration work).
+#[allow(dead_code)]
 async fn build_orchestrator_mock<G: Gatekeeper + 'static>(
     db: Option<&str>,
     jsonl: &str,
@@ -318,6 +358,107 @@ async fn ingest(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
     if db.is_none() {
         println!("(in-memory store — nothing persisted; pass --db to keep it)");
     }
+    Ok(())
+}
+
+/// Gate-calibration instrument (Assess phase of `docs/gate-calibration-claude-code-prompt.md`).
+///
+/// Runs every query in the eval sets through the retrieval legs and records, per query, the
+/// fused top score, how many legs ranked the top passage (`top_legs_matched`), the live-leg
+/// count, and the top-3 ids. Writes a JSONL report and prints per-set leg-agreement
+/// distributions. Read-only: it changes neither retrieval nor the gate. With `--features
+/// mistralrs` + an ingested `--db` it reports the real 4-leg numbers; otherwise the BM25-only
+/// path, which it labels so the distributions aren't misread.
+async fn gate_calibrate(
+    eval_dir: &str,
+    db: Option<&str>,
+    jsonl: &str,
+    out: &str,
+) -> anyhow::Result<()> {
+    use std::io::Write;
+
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        let s = open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)));
+        if db.is_none() {
+            s.ingest_corpus(jsonl).await?;
+        }
+        s
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = {
+        let s = open_store(db).await?;
+        if db.is_none() {
+            s.ingest_corpus(jsonl).await?;
+        }
+        eprintln!(
+            "WARNING: built without --features mistralrs → BM25-only retrieval (1–2 legs). \
+             The 4-leg calibration the gate design needs requires the embeddinggemma embedder \
+             on a GPU host. Run there for production numbers."
+        );
+        s
+    };
+
+    // The four eval sets the doc names, with the query key each uses.
+    let sets = [
+        ("grounding", "grounding.jsonl"),
+        ("refusal", "refusal.jsonl"),
+        ("method-application", "method-application.jsonl"),
+        ("boundary", "boundary.jsonl"),
+    ];
+
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let mut report = std::fs::File::create(out)?;
+
+    for (set_name, file) in sets {
+        let path = format!("{eval_dir}/{file}");
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("skip {set_name}: cannot read {path}: {e}");
+                continue;
+            }
+        };
+        let mut dist: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+        let mut n = 0usize;
+        for line in content.lines().filter(|l| !l.trim().is_empty()) {
+            let v: serde_json::Value = serde_json::from_str(line)?;
+            // Eval sets use either `user_query` or `query`.
+            let query = v
+                .get("user_query")
+                .or_else(|| v.get("query"))
+                .and_then(|q| q.as_str())
+                .unwrap_or("");
+            if query.is_empty() {
+                continue;
+            }
+            let row = store.calibrate_query(query, 5).await?;
+            *dist.entry(row.top_legs_matched).or_insert(0) += 1;
+            n += 1;
+            let mut line = serde_json::to_value(&row)?;
+            line["set"] = serde_json::Value::String(set_name.to_string());
+            line["eval_id"] = v.get("id").cloned().unwrap_or(serde_json::Value::Null);
+            writeln!(report, "{}", serde_json::to_string(&line)?)?;
+        }
+        let summary: Vec<String> = dist
+            .iter()
+            .map(|(legs, count)| format!("{legs}leg={count}"))
+            .collect();
+        println!(
+            "{set_name:<20} n={n:<3} legs_matched: [{}]",
+            summary.join(" ")
+        );
+    }
+
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("\ncalibration report written to {out}");
+    println!("Next (Plan phase): apply the preregistered tier rule to these distributions.");
     Ok(())
 }
 

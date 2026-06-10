@@ -129,6 +129,92 @@ impl SurrealStore {
         self.fetch_ranked(&fused).await
     }
 
+    /// Diagnostic: run the four retrieval legs and report per-leg rank of every candidate,
+    /// plus the fused score and `legs_matched` count. Read-only instrumentation for gate
+    /// calibration (`docs/gate-calibration-claude-code-prompt.md`) — it does NOT change
+    /// retrieval or the gate; it exposes the leg-agreement signal `rrf_fuse` collapses into a
+    /// scalar. Mirrors `retrieve_hybrid`'s leg setup exactly so the numbers match production.
+    pub async fn calibrate_query(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<CalibrationRow, StoreError> {
+        const CANDIDATES: usize = 20;
+        const K: f32 = 60.0;
+
+        let q = crate::stopwords::strip(query);
+        if q.is_empty() {
+            return Ok(CalibrationRow::empty(query, "stopword-only"));
+        }
+        // The hybrid path needs an embedder; without one only the BM25 legs run (1–2 legs).
+        let Some(embedder) = &self.embedder else {
+            let ft_o = self.rank_bm25(&q, 0, "text_original", CANDIDATES).await?;
+            let ft_m = self.rank_bm25(&q, 1, "text_modern", CANDIDATES).await?;
+            return Ok(Self::fuse_calibration(
+                query,
+                "bm25-only",
+                &[("ft_o", ft_o), ("ft_m", ft_m)],
+                K,
+                limit,
+            ));
+        };
+        let emb = embedder.embed_query(query).await?;
+        let ft_o = self.rank_bm25(&q, 0, "text_original", CANDIDATES).await?;
+        let ft_m = self.rank_bm25(&q, 1, "text_modern", CANDIDATES).await?;
+        let v_o = self.rank_vector("emb_original", &emb, CANDIDATES).await?;
+        let v_m = self.rank_vector("emb_modern", &emb, CANDIDATES).await?;
+        Ok(Self::fuse_calibration(
+            query,
+            "hybrid-4leg",
+            &[("ft_o", ft_o), ("ft_m", ft_m), ("v_o", v_o), ("v_m", v_m)],
+            K,
+            limit,
+        ))
+    }
+
+    /// Fuse named legs into a [`CalibrationRow`]: top fused id, its score, how many legs it
+    /// appeared in (`legs_matched`), the live (non-empty) leg count, and the top-3 ids.
+    fn fuse_calibration(
+        query: &str,
+        path: &str,
+        legs: &[(&str, Vec<String>)],
+        k: f32,
+        limit: usize,
+    ) -> CalibrationRow {
+        use std::collections::HashMap;
+        let live_legs = legs.iter().filter(|(_, l)| !l.is_empty()).count();
+        // Fused score + per-leg membership for each id.
+        let mut score: HashMap<&str, f32> = HashMap::new();
+        let mut legs_for: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (name, list) in legs {
+            for (rank, id) in list.iter().enumerate() {
+                *score.entry(id).or_insert(0.0) += 1.0 / (k + (rank as f32 + 1.0));
+                legs_for.entry(id).or_default().push(name);
+            }
+        }
+        let mut ranked: Vec<(&str, f32)> = score.into_iter().collect();
+        ranked.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(b.0))
+        });
+        let top = ranked.first();
+        CalibrationRow {
+            query: query.to_string(),
+            path: path.to_string(),
+            live_legs,
+            top_score: top.map(|(_, s)| *s).unwrap_or(0.0),
+            top_legs_matched: top
+                .map(|(id, _)| legs_for.get(id).map(|v| v.len()).unwrap_or(0))
+                .unwrap_or(0),
+            top3_ids: ranked
+                .iter()
+                .take(limit.min(3))
+                .map(|(id, _)| id.to_string())
+                .collect(),
+        }
+    }
+
     /// One BM25 leg: ranked string ids for `q` against full-text index `idx` on `field`.
     async fn rank_bm25(
         &self,
@@ -277,6 +363,41 @@ impl Store for SurrealStore {
     // override needed; the move/parallels layer is reconstructed from each saying's `move`.
 }
 
+/// One query's gate-calibration measurement. Serialized to the calibration report JSONL.
+///
+/// `top_legs_matched` is the load-bearing signal: how many independent retrieval legs ranked
+/// the top fused passage. `live_legs` records how many legs had any results (today the two
+/// modern-register legs are dead because `text_modern` is empty corpus-wide, so the hybrid
+/// path's ceiling is 2 live legs until annotation revives them).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CalibrationRow {
+    pub query: String,
+    /// Which retrieval path ran: `hybrid-4leg`, `bm25-only`, or `stopword-only`.
+    pub path: String,
+    /// Number of legs that returned any candidates (≤ 4).
+    pub live_legs: usize,
+    /// Fused RRF score of the top passage.
+    pub top_score: f32,
+    /// How many legs ranked the top passage (the gate's proposed tier signal).
+    pub top_legs_matched: usize,
+    /// Top-3 fused passage ids (for spot-checking what was retrieved).
+    pub top3_ids: Vec<String>,
+}
+
+impl CalibrationRow {
+    /// A row for a query that produced no retrieval (e.g. stopword-only).
+    fn empty(query: &str, path: &str) -> Self {
+        Self {
+            query: query.to_string(),
+            path: path.to_string(),
+            live_legs: 0,
+            top_score: 0.0,
+            top_legs_matched: 0,
+            top3_ids: Vec::new(),
+        }
+    }
+}
+
 /// A single string id projected from a `record::id(id)` query.
 #[derive(Debug, serde::Deserialize, SurrealValue)]
 struct IdRow {
@@ -335,5 +456,38 @@ mod tests {
         assert!(rrf_fuse(&[], 60.0, 5).is_empty());
         let one = vec!["x".to_string(), "y".to_string(), "z".to_string()];
         assert_eq!(rrf_fuse(&[one], 60.0, 2).len(), 2);
+    }
+
+    #[test]
+    fn calibration_counts_leg_agreement() {
+        // "b" is #1 in two legs -> top_legs_matched = 2, score = 2/61.
+        let legs = [
+            ("ft_o", vec!["b".to_string(), "a".to_string()]),
+            ("v_o", vec!["b".to_string(), "c".to_string()]),
+        ];
+        let row = SurrealStore::fuse_calibration("q", "hybrid-4leg", &legs, 60.0, 5);
+        assert_eq!(row.top_legs_matched, 2, "top passage appeared in both legs");
+        assert_eq!(row.live_legs, 2);
+        assert!((row.top_score - 2.0 / 61.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn calibration_single_leg_is_one() {
+        // Disjoint legs -> the winner appeared in exactly one (tie broken by id "a").
+        let legs = [
+            ("ft_o", vec!["a".to_string()]),
+            ("v_o", vec!["z".to_string()]),
+        ];
+        let row = SurrealStore::fuse_calibration("q", "hybrid-4leg", &legs, 60.0, 5);
+        assert_eq!(row.top_legs_matched, 1);
+        assert!((row.top_score - 1.0 / 61.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn calibration_dead_legs_lower_live_count() {
+        // Modern legs empty (today's reality) -> live_legs = 1 of the 2 supplied.
+        let legs = [("ft_o", vec!["a".to_string()]), ("ft_m", Vec::new())];
+        let row = SurrealStore::fuse_calibration("q", "hybrid-4leg", &legs, 60.0, 5);
+        assert_eq!(row.live_legs, 1);
     }
 }

@@ -91,3 +91,70 @@ Edit set:
 
 QA gate: `cargo fmt` + `cargo clippy -D warnings` + `cargo test`. artifact-refiner optional
 (prompt-string change, one test).
+
+---
+
+## Execution — Wave 1 / gate-calibration ASSESS phase (2026-06-09)
+
+**Backend:** openspec (change `gate-calibration`). PMPO discipline per
+`docs/gate-calibration-claude-code-prompt.md`: Assess → HALT → Plan → HALT → Execute → Reflect.
+
+### Step 1 — four findings VERIFIED against current source (all confirmed)
+
+1. **Gate disabled — CONFIRMED.** `gate.rs:14` `DEFAULT_COVERAGE_THRESHOLD = 0.0`;
+   `evaluate_set` (`:33`) passes any non-empty set because RRF scores are strictly positive
+   (`rrf_fuse` `surreal.rs:297`, `score = Σ 1/(60+rank) > 0`). `InsufficientAttestation`
+   branch (`:40`) is unreachable in production. Doc comment already says "Provisional."
+2. **RRF = leg-agreement bands — CONFIRMED.** `retrieve_hybrid` (`surreal.rs:107`) fuses 4
+   legs (ft_o, ft_m, v_o, v_m), CANDIDATES=20, K=60. Arithmetic bands hold. **Compounding
+   factor CONFIRMED empirically: text_modern is 0/927 non-empty** → the two modern-register
+   legs (ft_m, v_m) are dead → realistic ceiling 2/61 ≈ 0.033 today, exactly as the doc states.
+3. **eval/retrieval.jsonl unreachable scale — CONFIRMED.** All 30 tests assert
+   `"min_score": 0.3`; RRF ceiling is 4/61 ≈ 0.066 (0.033 today). No test can pass its score
+   assertion. Must be rescaled in the gate change.
+4. **Hard binary gate breaks method-application — PLAUSIBLE, pending the run.** 15 tests,
+   modern-register personal questions; whether they are single-leg matches is the empirical
+   question the calibration run must answer.
+
+### Step 2 — calibration instrument: BLOCKER surfaced (HALT for decision)
+
+The doc's instrument ("run 95 queries through `Store::retrieve`, log per-leg ranks +
+legs_matched") has two unmet dependencies on THIS host:
+
+- **No CUDA GPU / no embeddinggemma / no merged checkpoint** (host is arm64 macOS; HF cache
+  has only base gemma-4-E4B). The real 4-leg hybrid path needs the GPU embedder; without it
+  `Store::retrieve` falls back to **BM25-only (1 leg)** — calibration of a 4-leg gate on a
+  1-leg path would be meaningless. MockEmbedder exists but its lexical-hash vectors don't
+  reflect real semantic adjacency.
+- **No corpus DB on disk** — needs an ingest run (cheap; gated on the above).
+- **API visibility:** `rank_bm25`/`rank_vector`/`rrf_fuse` are private to `surreal.rs` and
+  `rrf_fuse` collapses leg membership to a scalar. Logging `legs_matched` requires exposing
+  per-leg provenance — which is Execute-phase production change, not Assess instrumentation.
+
+**Conclusion of Assess:** the four findings are confirmed and the design is sound, but the
+empirical calibration RUN (Step 3–4) requires the GPU box the release runs on. Options put to
+the owner before proceeding. HALT.
+
+### Step 2b — calibration instrument BUILT (Assess deliverable, committed)
+
+- `SurrealStore::calibrate_query()` + `CalibrationRow` (jesus-twin-store/src/surreal.rs):
+  read-only; runs the 4 legs, reports top_legs_matched / live_legs / top_score / top3_ids /
+  path. 3 unit tests pin the leg-agreement math (2-leg=2/61, 1-leg=1/61, dead-leg live count).
+- `jesus-twin gate calibrate` CLI subcommand (jesus-twin-cli/src/main.rs): runs the 4 eval
+  sets (handles both `user_query` and `query` keys), writes a JSONL report + prints per-set
+  distributions. Warns + degrades to bm25-only without --features mistralrs.
+- Verified: default build compiles; 14 store tests pass (3 new); clippy -D warnings clean
+  (fixed a PRE-EXISTING dead-code blocker, `build_orchestrator_mock`, with #[allow] + note —
+  not introduced by this change).
+- Smoke run (BM25-only, this host): instrument works end-to-end. As expected on a 1-leg path,
+  grounding/refusal/method-application = 100% single-leg; boundary already differentiates
+  (12/20 retrieve nothing → would refuse). Confirms top_score=0.0164 = single-leg (doc
+  arithmetic). NOT the real baseline — the 4-leg run is the GPU box's job.
+
+### HALT — handoff written
+
+`docs/HANDOFF-gate-calibration.md` gives the GPU operator the exact ingest + calibrate
+commands, sanity checks, and how to resume at Plan with the preregistered rule. PMPO halt
+respected: the gate REDESIGN (three-tier type, production legs_matched plumbing, Tier-2
+addendum, AG-UI chunk, retrieval.jsonl rescale) is deferred to Execute, after the GPU run
+and Plan approval.
