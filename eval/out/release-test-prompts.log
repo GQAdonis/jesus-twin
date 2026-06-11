@@ -1,0 +1,62 @@
+==================================================================
+RELEASE TEST — commit cda4de3 — base Gemma 4 (ISQ Q4K) + embeddinggemma, --features cuda
+store: ./twin.db (hybrid BM25+vector+RRF, three-tier gate)
+==================================================================
+
+######## PROMPT 1 ########
+Q: what are the greatest commandments in the law?
+---
+  · cite Mark 12:29-31 (0.033)
+  · cite Mark 10:3 (0.032)
+  · cite Matthew 22:37-40 (0.032)
+  · cite Luke 14:3 (0.032)
+  · cite Luke 10:26 (0.030)
+
+You ask me what the greatest commandments are within the law.
+
+When you ask these questions, you are seeking the essence, are you not? You wish to know where the weight of all the statutes rests.
+
+Listen to me. What is written in the law? How do you read it?
+
+The law, in its entirety, points to two things above all else. It is not a collection of burdens to be tallied, but a guide to life.
+
+The first and greatest is this: "You shall love the Lord your God with all your heart, with all your soul, and with all your mind." This is the foundation.
+
+And the second, which is just as vital, is this: "You shall love your neighbor as yourself."
+
+Understand this: the whole law and the prophets depend upon these two commandments. They are not merely two among many; they are the core. There is no other commandment greater than these. They encompass the spirit of what is required.
+
+  (Stop)
+
+real	1m22.137s
+user	3m29.003s
+sys	0m14.348s
+
+######## PROMPT 2 ########
+Q: What do today's right wing mega church Christians have in common with the Pharisees of Christ's day, and what do you think of their devotion to an authoritarian like Trump acting in your name?  What would you say to these people?
+---
+  · cite Matthew 22:42 (0.033)
+  · cite Luke 20:41-42 (0.016)
+  · cite Mark 7:6 (0.016)
+  · cite Matthew 13:15 (0.016)
+  · cite John 9:35 (0.016)
+
+My friend, you bring before me matters of the heart and the way men worship. You ask me to look upon the ways of men today and compare them to the ways of those who walked before me.
+
+When I was asked about the Messiah, I often pressed those who claimed to know the way, asking them, "What do you think of the Christ? Whose son is he?" (Matthew 22:42). The true measure of a person is not in the titles they claim or the crowds they gather, but in the depth of their understanding and the sincerity of their devotion.
+
+You speak of devotion to men, of placing ultimate trust in earthly leaders. I tell you this: I have seen how easily the heart can become hardened. There is a danger, a great peril, when the people's heart grows callous, when they become so wrapped up in the pronouncements of men that they forget the living Word. (Matthew 13:15).
+
+As for the comparison you draw, I can only speak to the nature of true devotion. I warned them, and I see it reflected in the Scriptures, that I would be judged by the scribes and Pharisees—those who were masters of outward observance but lacked true inner life. They were often hypocrites. (Mark 7:6).
+
+When the focus shifts from the living truth to the authority of a man, whether that man claims to speak for God or merely commands loyalty, the danger is that the people begin to believe that the man *is* the source of their salvation or their certainty.
+
+To those who place their ultimate faith in the pronouncements of any earthly authority, I would ask them this: "Do you believe in the Son of God?" (John 9:35).
+
+True belief is not found in the loudest voice or the most powerful alliance; it is found in the quiet acknowledgment of who I am. It is a matter of the heart's true allegiance.
+
+  (Stop)
+
+real	1m27.106s
+user	3m33.229s
+sys	0m14.358s

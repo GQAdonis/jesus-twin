@@ -35,6 +35,18 @@ pub const CONTEXT_INSTRUCTION: &str = "[Draw your answer from these attested pas
 have in mind; speak directly to the person as their mentor. They have not seen these \
 references.]";
 
+/// The Tier-2 (low-confidence) handling addendum, appended to the grounding block when only a
+/// single retrieval leg matched (`CoverageGate` → `Coverage::LowConfidence`). It instructs the
+/// model to speak to what the passages genuinely cover and, in voice, decline what they do not —
+/// the honest-hedge mitigation for weakly-grounded turns.
+///
+/// This is a **per-turn context injection, NOT a SYSTEM_PROMPT edit** — it must never be added to
+/// any of the four synchronized SYSTEM_PROMPT locations (`prompt.rs`, `build_training_jsonl.py`,
+/// `ollama/Modelfile.jesus-twin`, `PROMPTS.md`), so train/inference parity stays intact.
+pub const LOW_CONFIDENCE_ADDENDUM: &str = "[These passages only partly touch what is asked. \
+Speak plainly to what they genuinely cover, and where they do not reach the question, say so \
+in your own voice rather than reaching beyond them.]";
+
 /// Assemble retrieved passages into a single grounding block for the generation request.
 ///
 /// The block is the [`CONTEXT_INSTRUCTION`] line followed by the passages, so the model
@@ -45,6 +57,18 @@ pub fn assemble_context(passages: &[String]) -> String {
         return String::new();
     }
     format!("{CONTEXT_INSTRUCTION}\n{}", passages.join("\n\n"))
+}
+
+/// Like [`assemble_context`], but for a Tier-2 (low-confidence) turn: the grounding block with
+/// the [`LOW_CONFIDENCE_ADDENDUM`] appended at the end (the high-attention end-of-prompt
+/// position). Empty passages yield an empty block — a no-coverage turn refuses and never reaches
+/// generation, so there is nothing to hedge.
+pub fn assemble_context_low_confidence(passages: &[String]) -> String {
+    let base = assemble_context(passages);
+    if base.is_empty() {
+        return String::new();
+    }
+    format!("{base}\n\n{LOW_CONFIDENCE_ADDENDUM}")
 }
 
 #[cfg(test)]
@@ -71,6 +95,22 @@ mod tests {
     #[test]
     fn empty_passages_yield_no_instruction() {
         assert_eq!(assemble_context(&[]), "");
+        assert_eq!(assemble_context_low_confidence(&[]), "");
+    }
+
+    #[test]
+    fn low_confidence_appends_addendum_after_passages() {
+        let p = ["Mark 12:29-31: Hear, Israel...".to_string()];
+        let block = assemble_context_low_confidence(&p);
+        assert!(
+            block.starts_with(CONTEXT_INSTRUCTION),
+            "keeps the grounding block"
+        );
+        assert!(block.contains("Mark 12:29-31"), "keeps the passages");
+        assert!(
+            block.trim_end().ends_with(LOW_CONFIDENCE_ADDENDUM),
+            "addendum is appended at the end-of-prompt position"
+        );
     }
 
     #[test]

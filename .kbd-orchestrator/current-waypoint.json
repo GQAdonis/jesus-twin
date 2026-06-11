@@ -2,7 +2,7 @@
   "phase": "build-agent",
   "change": "wave-1-gate-calibration",
   "status": "planned",
-  "last_updated": "2026-06-09T00:00:00Z",
+  "last_updated": "2026-06-10T00:00:00Z",
   "changes": {
     "rag-prototype": "complete",
     "annotation-guide": "complete",
@@ -11,7 +11,7 @@
     "eval-suite": "complete",
     "fix-context-attribution": "complete-archived",
     "lora-train": "superseded-by-retrain-dual-base",
-    "gate-calibration": "assess-done-instrument-built-awaiting-gpu-run",
+    "gate-calibration": "DONE-committed-8659b79-branch-feat-gate-calibration-three-tier",
     "modern-legs-v1": "planned-wave-1",
     "hebrew-bible": "planned-wave-1",
     "eval-life-questions": "planned-wave-1",
@@ -25,7 +25,7 @@
     "honesty-surface-ui": "wave-3-blocked-on-ui",
     "production-lora": "superseded-by-retrain-dual-base"
   },
-  "next_action": "GPU BOX: run the gate calibration per docs/HANDOFF-gate-calibration.md (ingest --features mistralrs into twin.db, then `gate calibrate --db ../twin.db`), report the 4 leg-agreement distributions, then resume the change at PLAN (preregistered tier rule). Instrument is built + committed; Assess is HALTed. Meanwhile (GPU-independent, parallel): modern-legs-v1, hebrew-bible, eval tier benchmark, annotation-guide fix.",
+  "next_action": "gate-calibration COMMITTED (8659b79, branch feat/gate-calibration-three-tier; not pushed). PMPO Assess->Plan->Execute->Reflect complete. Shipped: three-tier leg-agreement gate, low-confidence chunk + addendum, retrieval.jsonl rescale, refusal eval updated to honest-decline contract, eval/run.py probe fix. Live eval: grounding 30/30, method-app 15/15; refusal 9/30 (keyword lower-bound). HONEST RESIDUALS (FINDINGS.md Reflect): (1) refusal eval needs an LLM-judge — keyword matching can't measure honest-decline vs confabulation; (2) Tier-2 in-prose hedge unreliable (base model answers ~half of single-leg out-of-corpus; non-confabulating where inspected but doesn't reliably decline) — honesty currently lives in the CHUNK not the text; (3) hard refusal of adjacent-topic out-of-corpus needs the deferred discriminating signal = PMPO option B. Pre-existing unrelated main failure: jesus-twin-api openai non_stream_refusal text drift (not touched). NEXT: push/PR if wanted; then remaining Wave 1 (modern-legs-v1, hebrew-bible, eval-life-questions, annotation-guide-fix) are GPU-independent and parallelizable.",
   "blockers": [],
   "notes": "lora-train moved to deferred per assessment.md (75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows). RAG-only is the shippable interim build; fix-context-attribution makes that build's voice correct without the fine-tune."
 }

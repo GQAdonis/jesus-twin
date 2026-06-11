@@ -61,6 +61,22 @@ async fn covered_query_grounds_and_generates_with_citations() {
         .await
         .expect("run");
 
+    // This harness has no embedder attached, so retrieval is BM25-only = a single modality =
+    // Tier 2 (low-confidence) by definition: a covered query still grounds, cites, and generates,
+    // but the low-confidence honesty chunk is emitted.
+    let low_conf: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Custom { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        low_conf,
+        vec!["x-jesus-twin/low-confidence"],
+        "BM25-only fallback is Tier 2 → exactly one low-confidence chunk"
+    );
+
     // Lifecycle: starts and finishes with Stop (not Refusal).
     assert!(matches!(
         events.first(),
@@ -156,4 +172,110 @@ async fn session_without_user_message_errors() {
     };
     let empty = Session::new(Uuid::new_v4());
     assert!(orch.run(&empty).await.is_err());
+}
+
+// --- Deterministic tier coverage via a fake store (BM25-only can't produce a 2-leg Tier-1) ---
+
+use jesus_twin_store::{Passage, RetrievalSet, StoreError};
+
+/// A store that returns one passage with a configurable `top_legs_matched`, so the orchestrator's
+/// tier branching can be exercised without an embedder/vectors.
+struct FakeStore {
+    legs: u8,
+}
+
+#[async_trait::async_trait]
+impl Store for FakeStore {
+    async fn retrieve(&self, _q: &str, _limit: usize) -> Result<RetrievalSet, StoreError> {
+        let p = Passage {
+            id: "saying-1".into(),
+            ref_: "Mark 12:29-31".into(),
+            book_author: "Mark".into(),
+            text_original: "Hear, Israel...".into(),
+            text_modern: String::new(),
+            context: String::new(),
+            location: String::new(),
+            occasion: String::new(),
+            move_: String::new(),
+            translation: String::new(),
+            score: Some(0.03),
+        };
+        Ok(RetrievalSet {
+            passages: vec![p],
+            top_legs_matched: self.legs,
+        })
+    }
+    async fn ingest_corpus(&self, _p: &str) -> Result<usize, StoreError> {
+        Ok(0)
+    }
+    async fn get_by_ref(&self, _r: &str) -> Result<Option<Passage>, StoreError> {
+        Ok(None)
+    }
+    async fn find_by_move(&self, _m: &str, _l: usize) -> Result<Vec<Passage>, StoreError> {
+        Ok(vec![])
+    }
+}
+
+fn fake_orchestrator(legs: u8) -> Orchestrator<FakeStore, MockEngine, OpenGatekeeper> {
+    Orchestrator::new(
+        FakeStore { legs },
+        MockEngine::new(),
+        OpenGatekeeper,
+        Registry::new(),
+        CoverageGate::default(),
+    )
+}
+
+#[tokio::test]
+async fn tier1_two_legs_emits_no_low_confidence_chunk() {
+    let events = fake_orchestrator(2)
+        .run(&session_with("the greatest commandment"))
+        .await
+        .expect("run");
+    // Grounded: generates + cites, finishes Stop, and NO low-confidence chunk.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Citation { .. })),
+        "Tier 1 still cites"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Custom { .. })),
+        "two agreeing legs must NOT emit the low-confidence chunk"
+    );
+    assert!(matches!(
+        events.last(),
+        Some(AgentEvent::RunFinished {
+            finish: FinishReason::Stop,
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn tier2_one_leg_emits_low_confidence_chunk() {
+    let events = fake_orchestrator(1)
+        .run(&session_with("how do I handle money anxiety"))
+        .await
+        .expect("run");
+    let chunk = events.iter().find_map(|e| match e {
+        AgentEvent::Custom { name, data } => Some((name.clone(), data.clone())),
+        _ => None,
+    });
+    let (name, data) = chunk.expect("Tier 2 emits a custom chunk");
+    assert_eq!(name, "x-jesus-twin/low-confidence");
+    assert_eq!(data["legs_matched"], serde_json::json!(1));
+    // Still answers (Tier 2 engages, with the hedge); does not refuse.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TextMessageDelta { .. }))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Refusal { .. }))
+    );
 }

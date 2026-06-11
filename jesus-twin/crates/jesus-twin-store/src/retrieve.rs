@@ -68,14 +68,22 @@ pub struct RagRecord {
     pub translation: String,
 }
 
-/// The fused, ranked result of one retrieval. The coverage gate reads `top_score`.
+/// The fused, ranked result of one retrieval. The coverage gate reads `top_legs_matched`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RetrievalSet {
     pub passages: Vec<Passage>,
+    /// How many independent retrieval legs ranked the **top** fused passage — the coverage
+    /// gate's tier signal (≥2 = grounded, 1 = low-confidence, 0/empty = no coverage). Gating
+    /// on leg agreement rather than raw RRF score is robust to the annotation program reviving
+    /// the modern legs (gate-calibration change, `docs/FINDINGS.md`). The BM25-only fallback
+    /// (no embedder) caps this at 1 by definition — a single retrieval modality ran.
+    #[serde(default)]
+    pub top_legs_matched: u8,
 }
 
 impl RetrievalSet {
-    /// Best fused score in the set, or `0.0` when empty (treated as no coverage).
+    /// Best fused score in the set, or `0.0` when empty. Retained for diagnostics/tests; the
+    /// gate keys on [`RetrievalSet::top_legs_matched`], not this scalar.
     pub fn top_score(&self) -> f32 {
         self.passages.first().and_then(|p| p.score).unwrap_or(0.0)
     }

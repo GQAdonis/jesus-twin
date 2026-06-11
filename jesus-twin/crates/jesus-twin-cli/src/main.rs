@@ -534,6 +534,10 @@ fn print_event(event: &AgentEvent) {
         AgentEvent::Refusal { reason } => {
             println!("\n[refused: {reason:?}] the recorded teachings don't address that.\n")
         }
+        AgentEvent::Custom { name, data } => {
+            // Surface the Tier-2 low-confidence flag (and any future namespaced chunk).
+            println!("  ⚠ {name} {data}");
+        }
         AgentEvent::RunFinished { finish, .. } => println!("  ({finish:?})"),
         _ => {}
     }

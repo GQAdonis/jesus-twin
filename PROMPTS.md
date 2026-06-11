@@ -122,6 +122,24 @@ it at request time. The prompt declares the policy; the gate enforces it.
   contract; the per-turn line is the reminder in the high-attention
   end-of-prompt position.
 
+### Per-turn context injections (NOT part of `SYSTEM_PROMPT`)
+
+Two strings in `jesus-twin-core/src/prompt.rs` are assembled into the **context**
+of an individual turn — never into `SYSTEM_PROMPT`. They must **not** be added to
+any of the four synchronized SYSTEM_PROMPT locations below; doing so would break
+train/inference parity (the LoRA never saw them).
+
+- **`CONTEXT_INSTRUCTION`** — prepends the retrieved passage block (provenance: the
+  mentor's own recall, the user hasn't seen them).
+- **`LOW_CONFIDENCE_ADDENDUM`** — appended to the passage block **only on a Tier-2
+  (low-confidence) turn**, i.e. when the coverage gate (`gate.rs`) finds the top
+  passage was matched by a single retrieval leg (`Coverage::LowConfidence`). It
+  instructs the model to speak to what the passages genuinely cover and, in voice,
+  decline what they do not — the honest-hedge mitigation for weakly-grounded turns.
+  The orchestrator also emits an `x-jesus-twin/low-confidence` AG-UI chunk on these
+  turns (the honesty surface). Rationale and the empirical calibration behind the
+  tiers are in `docs/FINDINGS.md` (gate-calibration change).
+
 ## What this prompt is *not* trying to do
 
 - **Not a chatbot persona.** The mentor voice is a stance toward a

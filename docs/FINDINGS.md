@@ -93,3 +93,114 @@ Matthew 22:37-40, Mark 10:3, Luke 14:3, Luke 10:26; answer quotes the Shema +
 "love your neighbor as yourself … no other commandment greater than these," rendered in modern
 first-person voice, stops cleanly. ~1m21s against the pre-vectorized persistent store (model
 load dominates; retrieval/generation are seconds).
+
+---
+
+# Gate calibration — coverage gate baseline (2026-06-10)
+
+The coverage gate was structurally disabled (`DEFAULT_COVERAGE_THRESHOLD = 0.0` passed any
+non-empty retrieval, since RRF scores are strictly positive — an out-of-corpus modern-politics
+question was answered silently from thematically-adjacent passages). The `gate-calibration` change
+replaced it with a **leg-agreement three-tier gate**. Full plan + preregistered rule:
+`openspec/changes/gate-calibration/design.md`.
+
+## Calibration baseline (committed per DoD #1)
+
+Real 4-leg run on the L4 (`jesus-twin gate calibrate`, embeddinggemma-vectorized `twin.db`, base
+Gemma 4). All 95 eval queries ran the `hybrid-4leg` path; `live_legs = 2` (the two modern-register
+legs are dead until annotation revives `text_modern`). Report: `eval/out/gate-calibration.jsonl`.
+
+| Eval set | n | 1-leg | 2-leg |
+|---|---|---|---|
+| grounding | 30 | 2 | 28 |
+| refusal | 30 | 20 | 10 |
+| method-application | 15 | 5 | 10 |
+| boundary | 20 | 16 | 4 |
+
+## The gate (shipped)
+
+- **Tier 1 / `Grounded`** — ≥2 legs agree → answer normally.
+- **Tier 2 / `LowConfidence`** — 1 leg (semantic-only, or the BM25-only fallback) → answer **with**
+  the `x-jesus-twin/low-confidence` AG-UI chunk + an in-voice context addendum ("decline what the
+  passages don't cover"). SYSTEM_PROMPT untouched — the addendum is per-turn context only.
+- **Tier 3 / `NoCoverage`** — empty / stopword-only → refuse before the model runs.
+
+## Rejected alternatives
+
+- **Raw score floor (Finding 2's 0.02 band)** — rejected: requires mandatory recalibration when
+  annotation revives the modern legs; leg-agreement does not.
+- **Leg-agreement + score floor (the minimal hybrid)** — rejected: the 2-leg RRF scores of
+  grounding (0.0278–0.0328) and refusal (0.0262–0.0323) **overlap and interleave**, so no floor
+  separates them. Keeping grounding 100% Tier 1 caps refusal flagging at ~70%.
+
+## Preregistered rule outcome (option C — owner amended)
+
+The original `refusal ≥95%` target is **unsatisfiable** on the (legs, RRF-score) signal — a
+retriever-signal limit, not a tuning miss. The owner amended the rule (design.md §1a) to a
+bright-line-preserving form: **single-leg refusal ≥95% Tier 2/3 (met 100% — this is the class of
+the documented Finding-1 violation); two-leg out-of-corpus accepted as Tier-1 grounded+cited
+(residual 10/30 documented)**. grounding 100% engage / 93% Tier 1; method-application 100% engage.
+
+## Recalibration trigger
+
+Re-run `gate calibrate` when annotation crosses **~300 rows** (the modern legs go live). Under
+leg-agreement the expected result is a **no-op confirmation**, not a re-derivation — if tiers shift,
+that is itself a signal worth investigating.
+
+## Tradeoff (honest)
+
+Leg-agreement granularity is coarse (3–5 distinct fused values), limiting future fine-grained
+confidence display; the BM25-only fallback is always Tier 2; and the two-leg out-of-corpus residual
+is a known, documented gap a future per-leg-rank-depth signal could close.
+
+## Reflect — post-change verification (2026-06-10)
+
+**Tier pass-rates vs the amended preregistered rule** (shipped gate applied to the committed
+calibration data — `eval/out/gate-calibration.jsonl`): grounding 100% engage / 93% Tier 1 ✅;
+method-application 100% engage ✅; refusal single-leg 100% Tier 2/3 ✅; refusal two-leg 10/30
+accepted Tier-1 residual (documented). All amended criteria **met**.
+
+**Live generation eval suites** (served base Gemma 4 + RAG, `eval/run.py`):
+- `grounding` **30/30 (100%)**, `method-application` **15/15 (100%)**.
+- `retrieval` — store-level stub, covered by `cargo test` (passing).
+- `refusal` — the load-bearing Reflect finding, stated plainly. The three-tier gate (under option C)
+  **does not hard-refuse** natural out-of-corpus questions: they retrieve thematically-adjacent
+  passages (≥1 leg → Tier 1/2), so Tier 3 (the only hard-refuse path) essentially never fires.
+  - **Legacy `is_refusal` check: 0/30** (it wanted a short hard refusal).
+  - **Updated check (honest-decline contract): 9/30** — Tier-2 single-leg declined 9/20, Tier-1
+    two-leg 0/10 (the latter get no hedge by design — option-C residual).
+  - **But the textual decline is partial AND under-measured.** Two effects compound: (1) the base
+    model only sometimes emits an explicit decline given the Tier-2 addendum — it often engages
+    adjacent teaching instead; (2) when it *does* decline, the wording varies far beyond any keyword
+    list ("do not fall within the scope", "no direct teaching", "matters of human invention"), so the
+    9/30 is a **lower bound**. Manual inspection of the "answered" cases (cryptocurrency, NFTs) shows
+    them **honestly acknowledging the topic is outside his teachings — not confabulating a position**,
+    so the **bright line (don't confabulate) holds** even where the keyword check fails.
+
+**What is solid vs. weak (honest split):**
+- **Solid (shipped):** the gate *classification* and the machine-readable `x-jesus-twin/low-confidence`
+  chunk — a UI/honesty surface can flag low-confidence turns deterministically, independent of the
+  model's prose. Verified.
+- **Weak:** the *textual* Tier-2 hedge (the in-voice decline) is unreliable — the base model answers
+  ~half the time. A fine-tune or a stronger steering mechanism would be needed for a reliable
+  in-prose decline.
+
+**Three follow-ups this surfaces (deferred, owner's call):**
+1. **Refusal eval needs an LLM-judge.** Keyword matching cannot measure "honest decline vs.
+   confabulation" — phrasing is too varied (the 9/30 keyword score undercounts true honest behavior).
+   The expanded keyword list is committed as a best-effort lower bound only.
+2. If actual **hard refusal** of adjacent-topic out-of-corpus questions is wanted (not a hedge),
+   leg-agreement cannot deliver it — needs the deferred discriminating signal (per-leg rank depth /
+   relevance judge). Re-raises PMPO option B.
+3. The Tier-2 in-prose hedge being unreliable means the **honesty value currently lives in the
+   chunk, not the text** — worth weighing when option B / a fine-tune is scoped.
+
+**Also fixed in Reflect (incidental):** `eval/run.py`'s readiness probe rejected the POST-only chat
+route (treated a 4xx `HTTPError` as unreachable); now treats any HTTP response as reachable.
+
+## Deferred / out of scope
+
+UI rendering of the low-confidence chunk (Workstream 4 — emission only here); the discriminating
+refusal signal (follow-up above); the pre-existing `jesus-twin-api` `openai` `non_stream_refusal`
+test drift (asserts "don't address that" vs the adapter's "I can't speak to that" — unrelated to
+this change).

@@ -90,8 +90,13 @@ impl SurrealStore {
             .bind(("q", q.to_string()))
             .bind(("limit", limit))
             .await?;
+        let passages: Vec<Passage> = res.take(0)?;
+        // BM25-only = a single retrieval modality (no vector leg), so a non-empty hit is
+        // Tier-2 (low-confidence) by definition; empty stays 0 (no coverage).
+        let top_legs_matched = u8::from(!passages.is_empty());
         Ok(RetrievalSet {
-            passages: res.take(0)?,
+            passages,
+            top_legs_matched,
         })
     }
 
@@ -122,11 +127,25 @@ impl SurrealStore {
             .rank_vector("emb_modern", &embedding, CANDIDATES)
             .await?;
 
-        let fused = rrf_fuse(&[ft_o, ft_m, v_o, v_m], K, limit);
+        let legs = [&ft_o, &ft_m, &v_o, &v_m];
+        let fused = rrf_fuse(
+            &[ft_o.clone(), ft_m.clone(), v_o.clone(), v_m.clone()],
+            K,
+            limit,
+        );
         if fused.is_empty() {
             return Ok(RetrievalSet::default());
         }
-        self.fetch_ranked(&fused).await
+        // The gate's tier signal: how many legs ranked the top fused passage (the same count
+        // `calibrate_query` reports). 2+ agreeing legs = grounded; 1 = low-confidence.
+        let top_id = fused[0].0.as_str();
+        let top_legs_matched = legs
+            .iter()
+            .filter(|l| l.iter().any(|id| id == top_id))
+            .count() as u8;
+        let mut set = self.fetch_ranked(&fused).await?;
+        set.top_legs_matched = top_legs_matched;
+        Ok(set)
     }
 
     /// Diagnostic: run the four retrieval legs and report per-leg rank of every candidate,
@@ -285,7 +304,11 @@ impl SurrealStore {
                 })
             })
             .collect();
-        Ok(RetrievalSet { passages })
+        // `top_legs_matched` is set by the caller (`retrieve_hybrid`); default 0 here.
+        Ok(RetrievalSet {
+            passages,
+            ..Default::default()
+        })
     }
 }
 
