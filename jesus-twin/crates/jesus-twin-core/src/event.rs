@@ -95,6 +95,14 @@ pub enum AgentEvent {
     Refusal {
         reason: RefusalReason,
     },
+    /// An additive, namespaced custom chunk (e.g. `x-jesus-twin/low-confidence`). Standard
+    /// clients ignore `type`s they don't recognize; adapters project it verbatim (CLAUDE.md —
+    /// custom AG-UI chunks must be additive + namespaced). Emitted on a Tier-2 (low-confidence)
+    /// turn so the honesty surface can flag single-leg grounding.
+    Custom {
+        name: String,
+        data: Json,
+    },
     RunFinished {
         run_id: Uuid,
         finish: FinishReason,

@@ -21,8 +21,8 @@ use jesus_twin_skills::Registry;
 use jesus_twin_store::{RetrievalSet, Store};
 
 use crate::agent::{Agent, AgentError, AgentErrorKind};
-use crate::event::{AgentEvent, FinishReason, Role};
-use crate::gate::CoverageGate;
+use crate::event::{AgentEvent, FinishReason, RefusalReason, Role};
+use crate::gate::{Coverage, CoverageGate};
 use crate::prompt::{self, SYSTEM_PROMPT};
 use crate::session::Session;
 
@@ -97,15 +97,20 @@ where
             .await
             .map_err(|e| OrchestratorError::Store(e.to_string()))?;
 
-        // 2. Coverage gate (stance): refuse out-of-corpus questions before the model runs.
-        if let Err(reason) = self.gate.evaluate_set(set.passages.len(), set.top_score()) {
-            events.push(AgentEvent::Refusal { reason });
+        // 2. Coverage gate (stance): classify by leg agreement. NoCoverage refuses before the
+        // model runs; LowConfidence answers but flags the turn; Grounded answers normally.
+        let coverage = self.gate.classify(set.passages.len(), set.top_legs_matched);
+        if coverage == Coverage::NoCoverage {
+            events.push(AgentEvent::Refusal {
+                reason: RefusalReason::NoCoverage,
+            });
             events.push(AgentEvent::RunFinished {
                 run_id,
                 finish: FinishReason::Refusal,
             });
             return Ok(events);
         }
+        let low_confidence = coverage == Coverage::LowConfidence;
 
         // 3. Citations + state snapshot: every grounded claim traces to a verse.
         for p in &set.passages {
@@ -119,7 +124,23 @@ where
             state: state_snapshot(&set),
         });
 
-        // 4. Generate (voice), conditioned on the retrieved passages.
+        // Tier 2: flag the turn for the honesty surface (single-leg grounding). Additive,
+        // namespaced — standard clients ignore it; the AG-UI adapter projects it verbatim.
+        if low_confidence {
+            events.push(AgentEvent::Custom {
+                name: "x-jesus-twin/low-confidence".to_string(),
+                data: serde_json::json!({ "legs_matched": set.top_legs_matched }),
+            });
+        }
+
+        // 4. Generate (voice), conditioned on the retrieved passages. On a low-confidence turn
+        // the context carries the in-voice hedge addendum (a per-turn injection; SYSTEM_PROMPT
+        // is untouched, preserving train/inference parity).
+        let context = if low_confidence {
+            prompt::assemble_context_low_confidence(&context_lines(&set))
+        } else {
+            prompt::assemble_context(&context_lines(&set))
+        };
         let message_id = Uuid::new_v4();
         events.push(AgentEvent::TextMessageStart {
             message_id,
@@ -129,7 +150,7 @@ where
             .engine
             .generate(GenRequest {
                 system: SYSTEM_PROMPT.to_string(),
-                context: prompt::assemble_context(&context_lines(&set)),
+                context,
                 user: query.to_string(),
             })
             .await

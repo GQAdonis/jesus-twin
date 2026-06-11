@@ -97,6 +97,10 @@ fn to_agui_event(ev: &AgentEvent) -> Option<Event> {
         AgentEvent::Refusal { reason } => {
             json!({ "type": "x-jesus-twin/refusal", "reason": reason })
         }
+        // Already-namespaced custom chunk (e.g. x-jesus-twin/low-confidence) — pass through.
+        AgentEvent::Custom { name, data } => {
+            json!({ "type": name, "data": data })
+        }
         AgentEvent::RunFinished { run_id, finish } => {
             json!({ "type": "RUN_FINISHED", "runId": run_id, "finish": finish })
         }

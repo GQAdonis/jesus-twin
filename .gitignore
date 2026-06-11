@@ -24,6 +24,10 @@ jesus-twin-embeddinggemma/
 *.gguf
 unsloth_training_checkpoints/
 
+# Generated eval reports (regenerate via eval/run.py + `jesus-twin gate calibrate`;
+# the committed calibration baseline lives in docs/FINDINGS.md).
+eval/out/
+
 # Embedded SurrealDB stores (rebuild via `jesus-twin ingest --db ...`)
 jesus-twin/twin.db/
 jesus-twin/twin.db.*/

@@ -22,6 +22,7 @@ impl Store for FakeStore {
     async fn retrieve(&self, _q: &str, _limit: usize) -> Result<RetrievalSet, StoreError> {
         Ok(RetrievalSet {
             passages: vec![caesar()],
+            ..Default::default()
         })
     }
     async fn ingest_corpus(&self, _p: &str) -> Result<usize, StoreError> {

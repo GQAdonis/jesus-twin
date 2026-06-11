@@ -1,50 +1,56 @@
-//! The coverage gate — the refusal guardrail.
+//! The coverage gate — the refusal / low-confidence guardrail.
 //!
-//! Reads the fused top retrieval score; below threshold it returns a [`RefusalReason`]
-//! *before the model runs* (ARCHITECTURE.md §7). This is where the historically-humble
-//! stance is enforced at the agent layer rather than baked into the weights
-//! (ALIGNMENT_AND_TUNING.md §1): out-of-corpus questions are refused, not confabulated.
+//! Classifies a retrieval set by **leg agreement** (how many independent retrieval legs ranked
+//! the top passage), not raw RRF score, into three tiers (ARCHITECTURE.md §7; the
+//! historically-humble stance is enforced here at the agent layer, not baked into the weights —
+//! ALIGNMENT_AND_TUNING.md §1). The tiers and the empirical calibration behind them are recorded
+//! in `docs/FINDINGS.md` (gate-calibration change):
+//!
+//! - **Tier 1 / `Grounded`** — ≥2 legs agreed: lexical and semantic retrieval independently
+//!   surfaced the same passage. Answer normally.
+//! - **Tier 2 / `LowConfidence`** — exactly 1 leg: a single-modality match (semantic-only, or the
+//!   BM25-only fallback). Answer, but with the low-confidence honesty signal + an in-voice
+//!   instruction to decline what the passages don't cover.
+//! - **Tier 3 / `NoCoverage`** — empty / stopword-only: out-of-corpus. Refuse before the model runs.
+//!
+//! Why leg agreement and not a score floor: the calibration showed grounding and out-of-corpus
+//! RRF scores overlap (non-separable), while leg agreement is deterministic, human-explainable,
+//! and robust to the annotation program reviving the currently-dead modern legs — no recalibration
+//! at the ~300-row milestone.
 
-use crate::event::RefusalReason;
-
-/// Default minimum top retrieval score a non-empty result set must clear to be considered
-/// "covered". A small positive floor (not 0.0) so a barely-matching passage doesn't count as
-/// real coverage. Provisional — tune against `build/eval_heldout.jsonl` once the full hybrid
-/// score is wired (training_data_spec.md §5: refusal behavior is an eval facet).
-pub const DEFAULT_COVERAGE_THRESHOLD: f32 = 0.0;
-
-/// Decides whether a query has enough grounded coverage to answer.
-#[derive(Debug, Clone)]
-pub struct CoverageGate {
-    threshold: f32,
+/// The coverage tier for a retrieval set — the gate's three-outcome verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Coverage {
+    /// ≥2 retrieval legs agreed on the top passage. Answer normally.
+    Grounded,
+    /// Exactly 1 leg matched (single-modality). Answer with the low-confidence signal + hedge.
+    LowConfidence,
+    /// No passage retrieved (empty / stopword-only). Refuse — out-of-corpus.
+    NoCoverage,
 }
+
+/// Classifies a retrieval set into a [`Coverage`] tier by leg agreement. Stateless: the rule is
+/// fixed by `docs/FINDINGS.md` and carries no tunable threshold (the old `DEFAULT_COVERAGE_THRESHOLD`
+/// was structurally disabled — RRF scores are strictly positive, so it passed everything).
+#[derive(Debug, Clone, Default)]
+pub struct CoverageGate;
 
 impl CoverageGate {
-    pub fn new(threshold: f32) -> Self {
-        Self { threshold }
+    pub fn new() -> Self {
+        Self
     }
 
-    /// Evaluate a retrieval set by its size and best score. `Ok(())` means "covered, proceed
-    /// to generate"; `Err(reason)` means emit a `Refusal` and stop the turn.
-    ///
-    /// An **empty** set is always a refusal (`NoCoverage`) — that is the primary out-of-corpus
-    /// signal. A non-empty set must additionally clear `threshold` (a guard against weakly
-    /// matching noise once scores are calibrated).
-    pub fn evaluate_set(&self, passage_count: usize, top_score: f32) -> Result<(), RefusalReason> {
+    /// Classify by passage count and the leg agreement of the top passage. An empty set is always
+    /// [`Coverage::NoCoverage`]; otherwise ≥2 legs → [`Coverage::Grounded`], else
+    /// [`Coverage::LowConfidence`].
+    pub fn classify(&self, passage_count: usize, top_legs_matched: u8) -> Coverage {
         if passage_count == 0 {
-            return Err(RefusalReason::NoCoverage);
-        }
-        if top_score >= self.threshold {
-            Ok(())
+            Coverage::NoCoverage
+        } else if top_legs_matched >= 2 {
+            Coverage::Grounded
         } else {
-            Err(RefusalReason::InsufficientAttestation)
+            Coverage::LowConfidence
         }
-    }
-}
-
-impl Default for CoverageGate {
-    fn default() -> Self {
-        Self::new(DEFAULT_COVERAGE_THRESHOLD)
     }
 }
 
@@ -53,23 +59,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_set_refuses_as_no_coverage() {
-        let gate = CoverageGate::default();
-        assert_eq!(gate.evaluate_set(0, 0.0), Err(RefusalReason::NoCoverage));
+    fn empty_set_is_no_coverage() {
+        // Tier 3: out-of-corpus / stopword-only — leg count is irrelevant when nothing matched.
+        assert_eq!(CoverageGate.classify(0, 0), Coverage::NoCoverage);
+        assert_eq!(CoverageGate.classify(0, 2), Coverage::NoCoverage);
     }
 
     #[test]
-    fn covered_set_passes() {
-        let gate = CoverageGate::new(1.0);
-        assert!(gate.evaluate_set(3, 8.8).is_ok());
+    fn two_or_more_legs_is_grounded() {
+        // Tier 1 boundary: exactly 2 agreeing legs (fused ≥ 2/61) → answer normally.
+        assert_eq!(CoverageGate.classify(5, 2), Coverage::Grounded);
+        assert_eq!(CoverageGate.classify(1, 4), Coverage::Grounded);
     }
 
     #[test]
-    fn weakly_scored_set_refuses_as_insufficient() {
-        let gate = CoverageGate::new(5.0);
-        assert_eq!(
-            gate.evaluate_set(2, 1.2),
-            Err(RefusalReason::InsufficientAttestation)
-        );
+    fn single_leg_is_low_confidence() {
+        // Tier 2 boundary: one leg (fused 1/61) — semantic-only or BM25-only fallback.
+        assert_eq!(CoverageGate.classify(5, 1), Coverage::LowConfidence);
     }
 }

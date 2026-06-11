@@ -35,6 +35,26 @@ python eval/run.py --output eval-report.json
 
 Total: 145 tests across 6 categories.
 
+## Gate calibration (regression facet)
+
+The coverage gate keys on **leg agreement** (how many retrieval legs ranked the top passage),
+not raw RRF score — see `docs/FINDINGS.md` and `openspec/changes/gate-calibration/design.md`.
+Re-run the leg-agreement calibration whenever retrieval changes (k, CANDIDATES, leg count) **or**
+annotation crosses **~300 rows** (the modern legs go live):
+
+```bash
+# GPU host, models present; ingest into a persistent --db first (with embeddings)
+cargo run --release --features cuda -p jesus-twin-cli -- \
+  gate calibrate --eval-dir ../eval --db ../jesus-twin/twin.db \
+  --out out/gate-calibration.jsonl
+```
+
+Expected: `path = hybrid-4leg`, `live_legs = 2` until annotation, and the per-set
+`top_legs_matched` distributions recorded in `docs/FINDINGS.md`. Under leg-agreement the ~300-row
+recalibration should be a **no-op confirmation** — a shift in the tiers is itself a signal to
+investigate. `retrieval.jsonl`'s `min_score` is on the RRF scale (single-leg floor 0.016), not the
+old unreachable 0.3.
+
 ## Pass Criteria
 
 | Suite | Pass threshold |

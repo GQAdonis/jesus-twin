@@ -158,3 +158,38 @@ commands, sanity checks, and how to resume at Plan with the preregistered rule. 
 respected: the gate REDESIGN (three-tier type, production legs_matched plumbing, Tier-2
 addendum, AG-UI chunk, retrieval.jsonl rescale) is deferred to Execute, after the GPU run
 and Plan approval.
+
+### Step 3–4 — empirical 4-leg calibration RUN (GPU box, 2026-06-10)
+
+Ran on the CUDA host (NVIDIA L4) per the handoff: `jesus-twin gate calibrate` (built
+`--features cuda`) against the embeddinggemma-vectorized `twin.db`, base `google/gemma-4-E4B-it`.
+Report: `eval/out/gate-calibration.jsonl` (95 rows).
+
+**Sanity checks (handoff §3) — PASS:** `path` = `hybrid-4leg` for all 95 (embedder attached, real
+path — not bm25-only). `live_legs` = **2** for 83 rows (original BM25 + original vector; both
+modern legs dead, as expected — emb_modern 0/927). 12 rows have `live_legs=1` (stopword-heavy
+queries where the BM25 leg returns nothing). This is why the ~300-row annotation milestone
+triggers a recalibration (modern legs come alive then).
+
+**The four leg-agreement distributions (`top_legs_matched`):**
+
+| Eval set | n | 1-leg | 2-leg | 2-leg % |
+|---|---|---|---|---|
+| grounding | 30 | 2 | 28 | 93% |
+| refusal | 30 | 20 | 10 | 33% |
+| method-application | 15 | 5 | 10 | 67% |
+| boundary | 20 | 16 | 4 | 20% |
+
+**Interpretation (confirm/refute, handoff §4.1):**
+- Single-leg vs two-leg **does discriminate**: grounding clusters 2-leg (93%), boundary clusters
+  1-leg (80%). A leg-agreement gate has signal.
+- **Finding-4 risk CONFIRMED:** method-application is **5/15 single-leg** — legitimate instruction
+  queries that a strict "2-leg ⇒ Tier 1" rule would under-serve. The tier rule must not strand them.
+- **Hard refusal cases CONFIRMED:** **10/30 refusal** queries reach **2-leg** agreement — genuine
+  out-of-corpus questions that still light two legs. Leg-agreement **alone** cannot push these to
+  refuse; a Tier-2 score floor (the doc's minimal-hybrid fallback) is likely required.
+
+**HALT — Assess complete.** Aggregate distributions only inspected (NOT individual query
+placements), so the Plan preregistration is still clean. Next: Plan phase preregisters the tier
+rule (handoff §4.2) BEFORE looking at per-query landings, then re-derives the minimal hybrid if
+leg-agreement alone is unsatisfiable. Awaiting owner go-ahead to enter Plan.
