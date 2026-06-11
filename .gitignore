@@ -25,8 +25,10 @@ jesus-twin-embeddinggemma/
 unsloth_training_checkpoints/
 
 # Generated eval reports (regenerate via eval/run.py + `jesus-twin gate calibrate`;
-# the committed calibration baseline lives in docs/FINDINGS.md).
-eval/out/
+# the committed calibration baseline lives in docs/FINDINGS.md). Ignore the contents but
+# keep the committed release test-prompt results log tracked.
+eval/out/*
+!eval/out/release-test-prompts.log
 
 # Embedded SurrealDB stores (rebuild via `jesus-twin ingest --db ...`)
 jesus-twin/twin.db/
