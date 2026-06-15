@@ -79,94 +79,133 @@ From `sample_training_data.jsonl`:
 
 ## 3. Reasoning Move — Method Labels
 
-These are the nine method labels from `ALIGNMENT_AND_TUNING.md` §2a. Pick the **one
-primary move**; if a saying uses multiple, see §4.1.
+These are the **18 canonical reasoning moves** from the "Reasoning Move Rubric" sheet in
+`jesus_sayings_dataset.xlsx` — the authoritative source (this guide must match it exactly).
+Tag the **operation he performs on the input**, not the topic or the emotion. Pick the **one
+primary move** (the dominant operation); add secondary moves in free text after a comma (see
+§4.1). Parallels usually share the same move.
+
+> Each move gives: the operation, how to recognize it, 2+ canonical exemplars, and a
+> **Distinguish from** note for the move it is most often confused with. On a borderline
+> case, read the Distinguish-from note before tagging — that is where annotator judgment is
+> trained. `build_training_jsonl.py` reads the `M0X` token via `\bM(\d{2})\b`, so any of
+> M01–M18 is recognized.
 
 ### M01 — Counter-question
-
-Returns a question that reframes or exposes a false premise. The saying *is* a question
-or pivots on one.
-
-| Original | Modern | Move |
-|---|---|---|
-| "The baptism of John — was it from heaven, or from men? Answer me." | "John's baptism — was it from God, or just something people made up? Go ahead, answer." | M01 |
-| "What do you benefit if you gain the whole world, but lose your own soul?" | "What good is it to get everything you want but lose the only thing that matters?" | M01 |
+Refuses to answer on the asker's terms and returns a question of his own.
+**Recognize:** the response is itself a question — "Whose…?", "Have you not read…?"
+**Exemplars:** Mark 11:29-30 (John's baptism); Mark 12:16 (whose image?)
+**Distinguish from M02 (Reject the premise):** a counter-question *probes*; M02 dismantles the frame outright.
 
 ### M02 — Reject the premise
+Dismantles the frame of a question instead of choosing one of its offered options.
+**Recognize:** neither option is taken; a reframing clause replaces the choice.
+**Exemplars:** Mark 12:17 (Caesar/God); John 8:7 (without sin)
+**Distinguish from M01 (Counter-question):** M02 may use no question at all.
 
-Refuses the binary, refuses the trap, or exposes a false assumption. Distinct from M01:
-M02 is a *statement* that rejects, M01 is a *question* that reframes.
-
-| Original | Modern | Move |
-|---|---|---|
-| "Render to Caesar the things that are Caesar's, and to God the things that are God's." | (see Positive Examples above) | M02 |
-| "He who is without sin among you, let him throw the first stone at her." | (see Positive Examples above) | M02 |
-
-### M03 — Distill to a principle
-
-Compresses a long argument into a single integrating claim.
-
-| Original | Modern | Move |
-|---|---|---|
-| "On these two commandments depend the whole law and the prophets." | (see Positive Examples above) | M03 |
+### M03 — Concrete over abstract
+Answers a categorical or definitional question with a story, image, or case.
+**Recognize:** a parable or narrative stands in place of a definition.
+**Exemplars:** Luke 10:30-37 (Good Samaritan); Luke 15:11-32 (prodigal)
+**Distinguish from M07 (Literal-to-metaphorical pivot):** M03 is a full narrative, not a single image.
 
 ### M04 — Lesser-to-greater (a fortiori / *kal v'homer*)
+Argues from a smaller/known case to a larger/certain one.
+**Recognize:** "If… how much more…"; nature or everyday comparisons.
+**Exemplars:** Matthew 6:28-30 (lilies); Matthew 7:11 (good gifts)
+**Distinguish from M05 (Inversion):** M04 escalates; M05 flips.
 
-Scales from a small observed fact to a larger claim.
+### M05 — Inversion / paradox
+States a reversal in which the expected order is overturned.
+**Recognize:** first/last, lose/save, greatest/servant, exalt/humble.
+**Exemplars:** Mark 10:31; Mark 10:43-44; Matthew 5:43-44
+**Distinguish from M06 (Hyperbole):** M05 reverses order; M06 exaggerates scale.
 
-| Original | Modern | Move |
-|---|---|---|
-| "Why are you anxious about clothing? Consider the lilies…" | (see Positive Examples above) | M04 |
+### M06 — Hyperbole to puncture
+Uses deliberate exaggeration to expose folly or self-deception.
+**Recognize:** a physically impossible image taken literally (plank, camel, gnat).
+**Exemplars:** Matthew 7:3-5 (plank); Mark 10:25 (camel); Matthew 23:24 (swallow a camel)
+**Distinguish from M05 (Inversion):** M06 exaggerates scale; M05 reverses order.
 
-### M05 — Parable / story-based illustration
+### M07 — Literal-to-metaphorical pivot
+Takes the questioner's literal frame and lifts it to a higher register.
+**Recognize:** repeats the asker's noun (water, bread, birth, temple), then redefines it.
+**Exemplars:** John 3:3-6 (born again); John 4:13-14 (living water)
+**Distinguish from M12 (Claim of identity):** M07 transforms the asker's term; M12 asserts "I am".
 
-Tells a story to carry an abstract truth. One main point, concrete imagery.
+### M08 — Redirect to the asker
+Names the specific thing that particular person is avoiding.
+**Recognize:** a pointed instruction aimed at one individual's situation.
+**Exemplars:** Mark 10:21 (sell what you have); John 4:16 (call your husband)
+**Distinguish from M03 (Concrete over abstract):** M08 targets the individual; M03 generalizes via story.
 
-| Original | Modern | Move |
-|---|---|---|
-| "A certain man had two sons… the younger took his journey into a far country… there arose a great famine… the son came to himself…" (Luke 15:11-32) | "A man had two sons. The younger took his share of the inheritance and left for a distant country where he spent everything. Stranded and starving, he got a job feeding pigs — and would have eaten the pig slop, he was so hungry." | M05 |
+### M09 — Appeal to scripture (*remez* when allusive)
+Cites or invokes scripture as authority, defense, or indictment.
+**Recognize:** "It is written"; "Have you not read"; a quoted Hebrew-Bible line (an allusion = *remez*).
+**Exemplars:** Matthew 4:4,7 (temptation); Mark 11:17 (den of robbers)
+**Distinguish from M01 (Counter-question):** M09 asserts a text; M01 asks.
 
-### M06 — Contrast of opposites
+### M10 — Intensify (act to intent)
+Moves a rule from outward act to inner disposition, raising the bar.
+**Recognize:** "You have heard… but I say…"; the act named, then the motive.
+**Exemplars:** Matthew 5:21-22 (anger ≈ murder); Matthew 5:27-28 (lust)
+**Distinguish from M11 (Distill):** M10 deepens one rule; M11 compresses many.
 
-Two-part structure: positive, then negative. Or positive/positive where the inversion
-carries the force.
+### M11 — Distill to a principle
+Compresses many rules or a complex question into one governing principle.
+**Recognize:** "On these hang all…"; one or two summary imperatives.
+**Exemplars:** Mark 12:29-31 (greatest command); Matthew 7:12 (golden rule)
+**Distinguish from M10 (Intensify):** M11 compresses; M10 deepens a single rule.
 
-| Original | Modern | Move |
-|---|---|---|
-| "Whoever loves father or mother more than me is not worthy of me; and whoever loves son or daughter more than me is not worthy of me." | "If you love your father or mother more than me, you're not worth following. If you love your son or daughter more than me, you're not worth following." | M06 |
+### M12 — Claim of identity
+Asserts who he is, often in "I am" form, as the answer itself.
+**Recognize:** "I am the…"; "Before Abraham was, I am."
+**Exemplars:** John 6:35; John 8:58; John 11:25; John 14:6
+**Distinguish from M07 (Literal-to-metaphorical pivot):** M12 asserts identity; M07 reframes a term.
 
-### M07 — Phrase inversion
+### M13 — Command / direct address
+Issues a direct imperative, often to a person, illness, or the dead.
+**Recognize:** a short imperative addressed to the subject ("Arise", "Come out").
+**Exemplars:** Mark 1:41 (be clean); Mark 5:41 (little girl, arise); John 11:43 (come out)
+**Distinguish from M14 (Mercy + call):** M13 is a bare command; M14 adds pardon.
 
-The same phrase is repeated with subject/object swapped to deepen meaning. Look for
-verses where the same construction appears twice in reversed order.
+### M14 — Mercy paired with a call
+Extends pardon or acceptance joined to a summons to change.
+**Recognize:** a forgiveness clause + "go and…"; no condemnation + a directive.
+**Exemplars:** John 8:11 (neither do I condemn… sin no more); Luke 19:9-10 (Zacchaeus)
+**Distinguish from M13 (Command):** M14 includes pardon and a moral call.
 
-| Original | Modern | Move |
-|---|---|---|
-| "Whoever confesses me before men, I will also confess him before my Father who is in heaven. But whoever denies me before men, I will also deny him before my Father." | "If you own me in front of others, I'll own you in front of my Father in heaven. But if you deny me in front of others, I'll deny you in front of my Father." | M07 |
+### M15 — Sharp rebuke
+Names an error bluntly, sometimes harshly, to correct or warn.
+**Recognize:** direct naming — "hypocrites", "Satan", "blind guides".
+**Exemplars:** Mark 8:33 (get behind me); Matthew 23:27 (whitewashed tombs)
+**Distinguish from M06 (Hyperbole):** M15 names the fault; M06 exaggerates an image.
 
-### M08 — Allusion / *remez*
+### M16 — Petition then surrender
+Voices a real request, then yields it to the Father's will.
+**Recognize:** a request clause + "nevertheless not my will but yours".
+**Exemplars:** Mark 14:36 (Gethsemane)
+**Distinguish from M17 (Lament):** M16 resolves into surrender; M17 voices abandonment.
 
-Uses a distinctive word to evoke an entire Hebrew scripture passage. The allusion
-is to a Tanakh verse the audience knew. If the allusion is clear, tag M08.
+### M17 — Lament / cry in extremity
+Voices anguish, often by quoting scripture, in the face of suffering.
+**Recognize:** a quoted psalm of lament; direct address to God in distress.
+**Exemplars:** Mark 15:34 (why have you forsaken me — Psalm 22)
+**Distinguish from M16 (Petition then surrender):** M17 need not resolve into yielding.
 
-| Original | Modern | Move |
-|---|---|---|
-| "But I say to you, that Elijah has come, and they did not recognize him…" (Matthew 17:12, echoing Malachi 4:5) | "But Elijah has come — and they didn't know it." | M08 |
-
-### M09 — Model / give a pattern
-
-Hands over a reusable template. Often a prayer, a rule, a protocol.
-
-| Original | Modern | Move |
-|---|---|---|
-| "Pray like this: 'Our Father in heaven…'" | (see Positive Examples above) | M09 |
+### M18 — Model / give a pattern
+Supplies an explicit template to imitate rather than a one-off answer.
+**Recognize:** "Pray like this…"; "do this in remembrance"; a worked example.
+**Exemplars:** Matthew 6:9-13 (Lord's Prayer); John 13:14-15 (washing feet)
+**Distinguish from M11 (Distill):** M18 gives a reusable form; M11 states a principle.
 
 ### Method not in the rubric
 
-If a saying uses a method that doesn't fit any of the above, write the description
-in the `Reasoning Move` cell (e.g., `"Parable + counter-question"`, or `"Parable (rule of three)"`).
-`build_training_jsonl.py` will pick up the `M0X` token where it can; the rest of the
-description is preserved as `move_text` metadata.
+The 18 moves above cover the space; a saying should almost always fit one as primary. If a
+saying genuinely uses a method that fits none, write the description in the `Reasoning Move`
+cell (e.g., `"M03 (rule of three)"`). `build_training_jsonl.py` picks up the `M0X` token; the
+rest of the description is preserved as `move_text` metadata. Prefer a canonical move + a
+free-text qualifier over inventing a new label.
 
 ---
 
@@ -174,14 +213,14 @@ description is preserved as `move_text` metadata.
 
 ### 4.1 Multi-move sayings
 
-Some sayings use more than one method (e.g., a parable that ends with a counter-question,
-or a contrast of opposites that uses phrase inversion).
+Some sayings use more than one method (e.g., a story that ends with a counter-question,
+or an inversion that intensifies act to intent).
 
 **Rule:** pick the *primary* move as the tag. Put the secondary moves in
 `Reasoning Move` as free text after a comma.
 
-Example: `"M05 (parable ends with M01 counter-question)"`
-Example: `"M06, M07 (contrast of opposites using phrase inversion)"`
+Example: `"M03 (concrete story ending with an M01 counter-question)"`
+Example: `"M05, M10 (inversion that intensifies act to intent)"`
 
 ### 4.2 Synoptic parallels
 
@@ -325,7 +364,8 @@ Format (one record per line, OpenAI-style):
 - Modern ethical questions (2)
 - Grief/loss (2)
 
-Total: 25 conversation pairs. All 9 methods should appear at least once across the 25.
+Total: 25 conversation pairs. Aim to exercise as many of the 18 canonical moves (§3) as the
+set allows — at minimum every move that appears more than a handful of times in the corpus.
 
 ### 7.2 Validation
 
@@ -342,7 +382,9 @@ Each response should pass the VISION.md persona contract:
 
 ## 8. Sources
 
-- `ALIGNMENT_AND_TUNING.md` §2a — the nine rhetorical methods
+- `jesus_sayings_dataset.xlsx` → sheet "Reasoning Move Rubric" — **the authoritative 18-move
+  rubric** this guide's §3 mirrors (names, recognition tests, exemplars, distinguish-from)
+- `ALIGNMENT_AND_TUNING.md` §2a — an earlier 9-method sketch, **superseded** by the 18-move rubric above
 - `VISION.md` — persona contract
 - `sample_training_data.jsonl` — gold-standard Modern Rendering examples
 - `christswords.com/content/jesusspeaking-style` — word order, contrast, inversion

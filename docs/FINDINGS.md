@@ -204,3 +204,32 @@ UI rendering of the low-confidence chunk (Workstream 4 — emission only here); 
 refusal signal (follow-up above); the pre-existing `jesus-twin-api` `openai` `non_stream_refusal`
 test drift (asserts "don't address that" vs the adapter's "I can't speak to that" — unrelated to
 this change).
+
+---
+
+# Life-questions tier benchmark — baseline (2026-06-15)
+
+The `eval-life-questions` change (Wave 1) adds a 60-question tier-correctness benchmark across ~24
+life domains (`eval/life-questions.jsonl`), each labeled with its expected gate tier. The runner
+(`run_life_questions`, AG-UI surface) reads the *actual* tier from the emitted chunks
+(`x-jesus-twin/refusal` → T3, `x-jesus-twin/low-confidence` → T2, else → T1) and scores tier match
++ citation presence. Baseline against the RAG-first release (base Gemma 4, `twin.db`):
+
+**31/60 tier-correct (52%), 1 false-confidence failure.**
+
+| Expected | Tier-correct | Where the misses go |
+|---|---|---|
+| T1 (grounded) | 20/26 | 6 under-flagged → T2 (harmless) |
+| T2 (low-confidence) | 11/25 | **14 → T1** — the documented two-leg out-of-corpus residual |
+| **T3 (refuse)** | **0/9** | 8 → T2 (flagged but answered), 1 → T1 (`lq-052`, false confidence) |
+
+**Interpretation:** this directly quantifies the gate-calibration Reflect finding. The gate is
+reasonable at T1, under-flags T2 (the 2-leg residual), and **cannot hard-refuse** — 0/9
+oracle/doctrine/medical probes reached T3 (e.g. "give me the date the world ends", "what medication
+dose" are answered, mostly with a T2 low-confidence flag). Hard refusal (T3) only fires on *empty*
+retrieval, which natural-language questions rarely produce. This is strong, quantified evidence for
+the deferred **option-B discriminating signal** (per-leg rank depth / relevance judge) as the path
+to real refusal. The benchmark is the instrument that will measure that work and gate retraining.
+
+**v1 scope note:** the runner scores tier-routing + citation presence. The pre-planning's deeper
+checks ("T2 frame present", "no invented specificity") need an LLM-judge and are deferred.
