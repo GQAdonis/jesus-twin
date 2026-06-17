@@ -70,6 +70,22 @@ impl SurrealStore {
         &self.db
     }
 
+    /// Apply machine-draft modern text (`modern-legs-v1`) from a sidecar JSONL onto existing
+    /// `saying` rows (flagging `machine_draft = true`) and re-embed so the two dead modern
+    /// retrieval legs (`text_modern` BM25 + `emb_modern` vector) go live. **Retrieval-indexing
+    /// only** — see [`ingest::apply_modern_drafts`]; nothing here is displayed or trained. An
+    /// embedder must be attached to populate `emb_modern`. Returns the number of drafts applied.
+    pub async fn ingest_modern_drafts(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        let count = ingest::apply_modern_drafts(&self.db, jsonl_path).await?;
+        match &self.embedder {
+            Some(embedder) => ingest::embed_all(&self.db, embedder.as_ref()).await?,
+            None => tracing::warn!(
+                "no embedder attached — text_modern updated but emb_modern (vector leg) not populated"
+            ),
+        }
+        Ok(count)
+    }
+
     /// BM25-only retrieval across both text registers (the fallback when no embedder is set).
     async fn retrieve_bm25(&self, q: &str, limit: usize) -> Result<RetrievalSet, StoreError> {
         // The `@{n},OR@` form gives a scored predicate (ref `n`, read by `search::score(n)`)

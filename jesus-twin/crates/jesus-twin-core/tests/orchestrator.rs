@@ -42,7 +42,7 @@ async fn make_orchestrator() -> Option<Orchestrator<SurrealStore, MockEngine, Op
         MockEngine::new(),
         OpenGatekeeper,
         Registry::new(),
-        CoverageGate::default(),
+        CoverageGate,
     ))
 }
 
@@ -222,7 +222,7 @@ fn fake_orchestrator(legs: u8) -> Orchestrator<FakeStore, MockEngine, OpenGateke
         MockEngine::new(),
         OpenGatekeeper,
         Registry::new(),
-        CoverageGate::default(),
+        CoverageGate,
     )
 }
 

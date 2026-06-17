@@ -162,6 +162,30 @@ enum Command {
         #[command(subcommand)]
         cmd: GateCmd,
     },
+    /// Generate doc2query-style MACHINE drafts of modern text into a sidecar (modern-legs-v1).
+    /// Indexing-only — these revive the dead modern retrieval legs and are NEVER displayed or
+    /// trained. Requires `--features mistralrs` (the generation model). Use `--limit` to sample.
+    ModernDrafts {
+        /// Corpus to draft modern renderings from.
+        #[arg(default_value = "../build/rag_corpus.jsonl")]
+        jsonl: String,
+        /// Output sidecar path (`{id, ref, text_modern, machine_draft:true}` per line).
+        #[arg(long, default_value = "../build/modern_drafts.jsonl")]
+        out: String,
+        /// Only draft the first N passages (0 = all). For sampling / verification.
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+    },
+    /// Apply machine-draft modern text from a sidecar into the store (flagging `machine_draft`)
+    /// and re-embed so the modern retrieval legs go live. Retrieval-indexing only.
+    ApplyModernDrafts {
+        /// Sidecar produced by `modern-drafts`.
+        #[arg(default_value = "../build/modern_drafts.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -215,6 +239,10 @@ async fn main() -> anyhow::Result<()> {
                     out,
                 },
         } => gate_calibrate(&eval_dir, db.as_deref(), &jsonl, &out).await,
+        Command::ModernDrafts { jsonl, out, limit } => modern_drafts(&jsonl, &out, limit).await,
+        Command::ApplyModernDrafts { jsonl, db } => {
+            apply_modern_drafts(&jsonl, db.as_deref()).await
+        }
         Command::Chat => {
             // TODO(build step 3+): drive the orchestrator interactively.
             anyhow::bail!("chat REPL not yet implemented");
@@ -269,7 +297,7 @@ where
         engine.clone(),
         gatekeeper,
         registry.clone(),
-        CoverageGate::default(),
+        CoverageGate,
     );
     let skill_ctx = Arc::new(SkillCtx::new(store, engine));
     let state = AppState::new(Arc::new(orch)).with_skills(registry, skill_ctx);
@@ -297,7 +325,7 @@ async fn build_orchestrator_mock<G: Gatekeeper + 'static>(
         MockEngine::new(),
         gatekeeper,
         register_builtins(Registry::new()),
-        CoverageGate::default(),
+        CoverageGate,
     ))
 }
 
@@ -498,7 +526,7 @@ async fn ask(query: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
             engine,
             OpenGatekeeper,
             register_builtins(Registry::new()),
-            CoverageGate::default(),
+            CoverageGate,
         );
         for event in orch.run(&session).await? {
             print_event(&event);
@@ -516,7 +544,7 @@ async fn ask(query: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
             MockEngine::new(),
             OpenGatekeeper,
             register_builtins(Registry::new()),
-            CoverageGate::default(),
+            CoverageGate,
         );
         for event in orch.run(&session).await? {
             print_event(&event);
@@ -541,6 +569,85 @@ fn print_event(event: &AgentEvent) {
         AgentEvent::RunFinished { finish, .. } => println!("  ({finish:?})"),
         _ => {}
     }
+}
+
+/// Generate machine-draft modern renderings (modern-legs-v1) into a sidecar JSONL. Plain
+/// generation (NOT the twin orchestrator): each saying's `text_original` is rewritten in modern
+/// English to populate the modern-register retrieval legs. The output is flagged
+/// `machine_draft: true` and is consumed only by `apply-modern-drafts` for indexing — never
+/// displayed (`context_lines` uses `text_original`) or trained (SFT reads the human xlsx).
+#[cfg(feature = "mistralrs")]
+async fn modern_drafts(jsonl: &str, out: &str, limit: usize) -> anyhow::Result<()> {
+    use jesus_twin_inference::{Engine, GenRequest};
+    use std::io::Write;
+
+    const DRAFT_SYSTEM: &str = "Rewrite the given saying in plain, natural, present-day English. \
+Preserve the exact meaning and any concrete imagery. Do NOT add commentary, framing, names, \
+explanation, or new content. Output only the rewritten line.";
+
+    let engine = build_mistral_engine().await?;
+    let content = std::fs::read_to_string(jsonl)?;
+    let mut records: Vec<jesus_twin_store::RagRecord> = Vec::new();
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        records.push(serde_json::from_str(line).map_err(|e| anyhow::anyhow!("{jsonl}: {e}"))?);
+    }
+    if limit > 0 {
+        records.truncate(limit);
+    }
+    let total = records.len();
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let mut f = std::fs::File::create(out)?;
+    for (i, rec) in records.iter().enumerate() {
+        let draft = engine
+            .generate(GenRequest {
+                system: DRAFT_SYSTEM.to_string(),
+                context: String::new(),
+                user: rec.text_original.clone(),
+            })
+            .await?;
+        let row = serde_json::json!({
+            "id": rec.id,
+            "ref": rec.ref_,
+            "text_modern": draft.trim(),
+            "machine_draft": true,
+        });
+        writeln!(f, "{}", serde_json::to_string(&row)?)?;
+        if (i + 1) % 25 == 0 || i + 1 == total {
+            tracing::info!("drafted {}/{}", i + 1, total);
+        }
+    }
+    println!("wrote {total} machine-draft modern renderings to {out}");
+    println!("next: apply-modern-drafts {out} --db <store>");
+    Ok(())
+}
+
+#[cfg(not(feature = "mistralrs"))]
+async fn modern_drafts(_jsonl: &str, _out: &str, _limit: usize) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "modern-drafts requires building --features mistralrs (needs the generation model)"
+    )
+}
+
+/// Apply a machine-draft sidecar into the store and re-embed the modern legs. Builds the engine
+/// (under the feature) so the embedder is attached and `emb_modern` is populated.
+async fn apply_modern_drafts(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = open_store(db).await?;
+
+    let count = store.ingest_modern_drafts(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("applied {count} machine-draft modern renderings (modern retrieval legs re-embedded)");
+    Ok(())
 }
 
 async fn open_store(db: Option<&str>) -> anyhow::Result<SurrealStore> {

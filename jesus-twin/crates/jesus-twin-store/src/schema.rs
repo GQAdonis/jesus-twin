@@ -25,6 +25,11 @@ DEFINE FIELD IF NOT EXISTS location      ON saying TYPE string DEFAULT "";
 DEFINE FIELD IF NOT EXISTS occasion      ON saying TYPE string DEFAULT "";
 DEFINE FIELD IF NOT EXISTS `move`        ON saying TYPE string DEFAULT "";
 DEFINE FIELD IF NOT EXISTS translation   ON saying TYPE string DEFAULT "";
+-- `machine_draft` flags rows whose `text_modern` is a doc2query-style MACHINE draft
+-- (`modern-legs-v1`), present for RETRIEVAL INDEXING ONLY. Such text is never displayed
+-- (`context_lines` uses `text_original`) and never trained (SFT reads the human xlsx, not the
+-- sidecar). Human-verified renderings (the `Modern Rendering` column) set this back to false.
+DEFINE FIELD IF NOT EXISTS machine_draft  ON saying TYPE bool DEFAULT false;
 DEFINE FIELD IF NOT EXISTS emb_original  ON saying TYPE option<array<float>>;
 DEFINE FIELD IF NOT EXISTS emb_modern    ON saying TYPE option<array<float>>;
 

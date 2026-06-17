@@ -233,3 +233,53 @@ to real refusal. The benchmark is the instrument that will measure that work and
 
 **v1 scope note:** the runner scores tier-routing + citation presence. The pre-planning's deeper
 checks ("T2 frame present", "no invented specificity") need an LLM-judge and are deferred.
+
+---
+
+# modern-legs-v1 — reviving the dead modern retrieval legs (2026-06-17)
+
+Two of the four retrieval legs (`text_modern` BM25 + `emb_modern` vector) were dead: `text_modern`
+is empty for all 927 sayings until human annotation fills the `Modern Rendering` column. This change
+populates them with **doc2query-style machine drafts** — a modern-English rewrite of each saying's
+`text_original` — so a modern-phrased query matches lexically (modern BM25) and semantically
+(`emb_modern`), improving recall **now** without waiting on annotation.
+
+## The bright line (enforced, not just stated)
+
+Machine text may influence *which* passages retrieve, never *what is said or trained*:
+- Drafts live in a **sidecar** (`build/modern_drafts.jsonl`, git-ignored), each `machine_draft: true`,
+  and are applied to `saying.text_modern` with a `machine_draft` flag — never written to the xlsx or
+  `rag_corpus.jsonl`.
+- **Display:** `orchestrator::context_lines` uses `text_original` only — pinned by the
+  `display_uses_original_not_modern` regression test.
+- **Training:** `build_training_jsonl.py` reads the human `Modern Rendering` xlsx column, never the
+  sidecar.
+- A human-verified rendering later overwrites the draft and resets `machine_draft = false`
+  (row-by-row promotion as Wave-3 annotation proceeds).
+
+## Pipeline (new CLI subcommands)
+
+```bash
+# 1. Generate drafts (plain generation, NOT the twin orchestrator). --limit N to sample.
+jesus-twin modern-drafts ../build/rag_corpus.jsonl --out ../build/modern_drafts.jsonl
+# 2. Apply into a store + re-embed the modern legs (needs --features cuda for the embedder).
+jesus-twin apply-modern-drafts ../build/modern_drafts.jsonl --db ./twin.db
+# 3. Re-run the gate calibration — live_legs goes 2 -> 4; expect more 2-leg agreement.
+jesus-twin gate calibrate --eval-dir ../eval --db ./twin.db --out ../eval/out/gate-calibration.jsonl
+```
+
+## Verified on a 10-passage sample
+
+Drafts are clean modern paraphrases, no commentary ("Blessed are the poor in spirit" → "Those who are
+humble in spirit are fortunate"; "Man shall not live by bread alone" → "People must live by more than
+just food…"). After apply, a query using **draft-only wording** ("humble in spirit are fortunate" —
+absent from the original) returns Matthew 5:3 as the top hit, proving the modern BM25 leg is live.
+
+## Handoff — the full corpus run (the GPU step to trigger)
+
+Run steps 1–3 above without `--limit` against the canonical `twin.db`: ~927 plain generations
+(multi-hour) then a re-embed and recalibration. Expected effect: covered queries reach `live_legs = 4`
+and more reach 2-leg agreement (Tier 1), which should *raise* the gate's grounding confidence; the
+recalibration quantifies it and is the regression baseline. (The ~300-row human-annotation milestone
+later promotes drafts to verified renderings and triggers another recalibration — a no-op under
+leg-agreement if nothing shifted.)

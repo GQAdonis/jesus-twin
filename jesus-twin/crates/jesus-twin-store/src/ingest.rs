@@ -147,3 +147,53 @@ pub async fn embed_all(db: &Surreal<Db>, embedder: &dyn Embed) -> Result<(), Sto
     tracing::info!(count = rows.len(), "embedded corpus for vector retrieval");
     Ok(())
 }
+
+/// One sidecar line of machine-draft modern text (`modern-legs-v1`).
+#[derive(Debug, Deserialize)]
+struct ModernDraft {
+    id: String,
+    text_modern: String,
+}
+
+/// Apply machine-draft `text_modern` from a sidecar JSONL (`{id, text_modern}` per line) onto
+/// existing `saying` rows, flagging each `machine_draft = true`. **Retrieval indexing only**:
+/// this revives the dead modern legs (`text_modern` BM25 + `emb_modern` vector) without touching
+/// the corpus file, the xlsx, or anything displayed/trained. Callers re-run [`embed_all`]
+/// afterwards to populate `emb_modern`. Idempotent; a human-verified rendering later overwrites
+/// the draft and resets the flag. Empty drafts are skipped. Returns the number applied.
+pub async fn apply_modern_drafts(db: &Surreal<Db>, jsonl_path: &str) -> Result<usize, StoreError> {
+    let file = std::fs::File::open(jsonl_path).map_err(|source| StoreError::Io {
+        path: jsonl_path.to_string(),
+        source,
+    })?;
+    let mut applied = 0usize;
+    for (i, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|source| StoreError::Io {
+            path: jsonl_path.to_string(),
+            source,
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let draft: ModernDraft =
+            serde_json::from_str(&line).map_err(|source| StoreError::Parse {
+                line: i + 1,
+                source,
+            })?;
+        if draft.text_modern.trim().is_empty() {
+            continue;
+        }
+        db.query("UPDATE type::record('saying', $id) SET text_modern = $tm, machine_draft = true;")
+            .bind(("id", draft.id))
+            .bind(("tm", draft.text_modern))
+            .await?
+            .check()?;
+        applied += 1;
+    }
+    tracing::info!(
+        count = applied,
+        path = jsonl_path,
+        "applied machine-draft modern text"
+    );
+    Ok(applied)
+}

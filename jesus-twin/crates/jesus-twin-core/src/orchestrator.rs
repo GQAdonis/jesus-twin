@@ -203,7 +203,11 @@ fn latest_user_message(session: &Session) -> Option<&str> {
 }
 
 /// Build the conditioning context lines from the retrieved passages: each is the cited
-/// original text (the ground truth the model paraphrases — never invents).
+/// **original** text (the ground truth the model paraphrases — never invents).
+///
+/// SAFETY (modern-legs-v1 bright line): this uses `text_original` ONLY. `text_modern` may hold a
+/// machine draft (`machine_draft = true`) that exists for retrieval indexing only and must never
+/// be displayed or fed to the model. The `display_uses_original_not_modern` test pins this.
 fn context_lines(set: &RetrievalSet) -> Vec<String> {
     set.passages
         .iter()
@@ -221,4 +225,44 @@ fn state_snapshot(set: &RetrievalSet) -> serde_json::Value {
             "move": p.move_,
         })).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jesus_twin_store::{Passage, RetrievalSet};
+
+    /// modern-legs-v1 bright line: the display/generation context must use `text_original`,
+    /// never a (possibly machine-draft) `text_modern`.
+    #[test]
+    fn display_uses_original_not_modern() {
+        let set = RetrievalSet {
+            passages: vec![Passage {
+                id: "wj-1".into(),
+                ref_: "Mark 12:17".into(),
+                book_author: "Mark".into(),
+                text_original: "Render to Caesar the things that are Caesar's.".into(),
+                text_modern: "MACHINE_DRAFT_SENTINEL give the government what is theirs".into(),
+                context: String::new(),
+                location: String::new(),
+                occasion: String::new(),
+                move_: String::new(),
+                translation: String::new(),
+                score: Some(0.03),
+            }],
+            top_legs_matched: 2,
+        };
+        let lines = context_lines(&set).join("\n");
+        assert!(
+            lines.contains("Render to Caesar"),
+            "must show the original text"
+        );
+        assert!(
+            !lines.contains("MACHINE_DRAFT_SENTINEL"),
+            "machine-draft text_modern must NEVER reach the display/generation context"
+        );
+        // The state snapshot must likewise not leak the draft text.
+        let snap = state_snapshot(&set).to_string();
+        assert!(!snap.contains("MACHINE_DRAFT_SENTINEL"));
+    }
 }
