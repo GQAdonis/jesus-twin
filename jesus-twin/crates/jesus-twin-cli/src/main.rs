@@ -186,6 +186,27 @@ enum Command {
         #[arg(long, env = "JESUS_TWIN_DB")]
         db: Option<String>,
     },
+    /// Ingest the Tanakh (JPS 1917, his source material) into the separate `tanakh` table and
+    /// embed it. Produce the JSONL first with `python ingest_tanakh.py --out build/tanakh.jsonl`.
+    IngestTanakh {
+        /// Tanakh JSONL produced by `ingest_tanakh.py`.
+        #[arg(default_value = "../build/tanakh.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested with the red-letter corpus.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Retrieve Tanakh source verses for a query — labeled as HIS SOURCE MATERIAL, not his words.
+    RetrieveTanakh {
+        /// The query text.
+        query: String,
+        /// Store directory; must have an ingested `tanakh` table.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+        /// Max verses to return.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -242,6 +263,10 @@ async fn main() -> anyhow::Result<()> {
         Command::ModernDrafts { jsonl, out, limit } => modern_drafts(&jsonl, &out, limit).await,
         Command::ApplyModernDrafts { jsonl, db } => {
             apply_modern_drafts(&jsonl, db.as_deref()).await
+        }
+        Command::IngestTanakh { jsonl, db } => ingest_tanakh(&jsonl, db.as_deref()).await,
+        Command::RetrieveTanakh { query, db, limit } => {
+            retrieve_tanakh(&query, db.as_deref(), limit).await
         }
         Command::Chat => {
             // TODO(build step 3+): drive the orchestrator interactively.
@@ -647,6 +672,43 @@ async fn apply_modern_drafts(jsonl: &str, db: Option<&str>) -> anyhow::Result<()
     drop(store);
     tokio::task::yield_now().await;
     println!("applied {count} machine-draft modern renderings (modern retrieval legs re-embedded)");
+    Ok(())
+}
+
+/// Ingest the Tanakh JSONL (his source material) into the `tanakh` table + embed it. Builds the
+/// engine (under the feature) so the embedder populates `emb`.
+async fn ingest_tanakh(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = open_store(db).await?;
+
+    let count = store.ingest_tanakh(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("ingested {count} Tanakh verses (his source material — not his words)");
+    Ok(())
+}
+
+/// Retrieve Tanakh source verses, labeled distinctly. BM25-only here (no embedder attached);
+/// `serve`/`ask` get the vector leg too. Prints with a clear "source material" header.
+async fn retrieve_tanakh(query: &str, db: Option<&str>, limit: usize) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let hits = store.retrieve_tanakh(query, limit).await?;
+    if hits.is_empty() {
+        println!("no Tanakh source material matches \"{query}\".");
+        return Ok(());
+    }
+    println!("Source material — Hebrew Bible (JPS 1917), what he drew on; NOT his own words:");
+    for p in &hits {
+        let score = p.score.unwrap_or(0.0);
+        println!("  [{score:.3}] {} ({}) {}", p.ref_, p.category, p.text);
+    }
     Ok(())
 }
 

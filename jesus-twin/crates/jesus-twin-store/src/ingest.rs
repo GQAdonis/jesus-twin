@@ -197,3 +197,92 @@ pub async fn apply_modern_drafts(db: &Surreal<Db>, jsonl_path: &str) -> Result<u
     );
     Ok(applied)
 }
+
+/// One line of `build/tanakh.jsonl` (produced by `ingest_tanakh.py`).
+#[derive(Debug, Deserialize)]
+struct TanakhRecord {
+    #[serde(rename = "ref")]
+    ref_: String,
+    text: String,
+    #[serde(default)]
+    book: String,
+    #[serde(default)]
+    category: String,
+    #[serde(default)]
+    translation: String,
+}
+
+/// Load the Tanakh JSONL (JPS 1917 verses) into the `tanakh` table — a SEPARATE corpus from
+/// `saying` (hebrew-bible: his source material, never his words). Upserts by verse `ref`, so
+/// re-ingesting is idempotent. Returns the number of verses loaded.
+pub async fn ingest_tanakh(db: &Surreal<Db>, jsonl_path: &str) -> Result<usize, StoreError> {
+    let file = std::fs::File::open(jsonl_path).map_err(|source| StoreError::Io {
+        path: jsonl_path.to_string(),
+        source,
+    })?;
+    let mut total = 0usize;
+    for (idx, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|source| StoreError::Io {
+            path: jsonl_path.to_string(),
+            source,
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let rec: TanakhRecord =
+            serde_json::from_str(&line).map_err(|source| StoreError::Parse {
+                line: idx + 1,
+                source,
+            })?;
+        let sql = "UPSERT type::record('tanakh', $ref) CONTENT {
+            ref: $ref, text: $text, book: $book, category: $category, translation: $translation
+        };";
+        db.query(sql)
+            .bind(("ref", rec.ref_.clone()))
+            .bind(("text", rec.text))
+            .bind(("book", rec.book))
+            .bind(("category", rec.category))
+            .bind((
+                "translation",
+                if rec.translation.is_empty() {
+                    "JPS 1917".to_string()
+                } else {
+                    rec.translation
+                },
+            ))
+            .await?
+            .check()?;
+        total += 1;
+    }
+    tracing::info!(count = total, path = jsonl_path, "ingested tanakh corpus");
+    Ok(total)
+}
+
+/// The id + text needed to embed a Tanakh verse.
+#[derive(Debug, Deserialize, SurrealValue)]
+struct TanakhEmbedRow {
+    id: String,
+    text: String,
+}
+
+/// Embed every Tanakh verse's text into `emb`, populating the HNSW index. Idempotent.
+pub async fn embed_tanakh(db: &Surreal<Db>, embedder: &dyn Embed) -> Result<(), StoreError> {
+    let mut res = db
+        .query("SELECT record::id(id) AS id, text FROM tanakh;")
+        .await?;
+    let rows: Vec<TanakhEmbedRow> = res.take(0)?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let texts: Vec<String> = rows.iter().map(|r| r.text.clone()).collect();
+    let vecs = embedder.embed(&texts).await?;
+    for (row, emb) in rows.iter().zip(vecs) {
+        db.query("UPDATE type::record('tanakh', $id) SET emb = $emb;")
+            .bind(("id", row.id.clone()))
+            .bind(("emb", emb))
+            .await?
+            .check()?;
+    }
+    tracing::info!(count = rows.len(), "embedded tanakh for vector retrieval");
+    Ok(())
+}

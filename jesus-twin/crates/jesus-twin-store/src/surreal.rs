@@ -19,7 +19,7 @@ use surrealdb::types::SurrealValue;
 
 use crate::embed::Embed;
 use crate::ingest;
-use crate::retrieve::{Passage, RetrievalSet};
+use crate::retrieve::{Passage, RetrievalSet, SourcePassage};
 use crate::schema;
 use crate::store::{Store, StoreError};
 
@@ -84,6 +84,103 @@ impl SurrealStore {
             ),
         }
         Ok(count)
+    }
+
+    /// Load the Tanakh JSONL into the separate `tanakh` table (hebrew-bible: his source material)
+    /// and embed it if an embedder is attached. Returns the number of verses loaded.
+    pub async fn ingest_tanakh(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        let count = ingest::ingest_tanakh(&self.db, jsonl_path).await?;
+        match &self.embedder {
+            Some(embedder) => ingest::embed_tanakh(&self.db, embedder.as_ref()).await?,
+            None => tracing::warn!(
+                "no embedder attached — tanakh text loaded but emb (vector leg) not populated"
+            ),
+        }
+        Ok(count)
+    }
+
+    /// Retrieve Tanakh verses (HIS SOURCE MATERIAL — never his words) for `query`: BM25 + (when an
+    /// embedder is attached) HNSW vector, fused by RRF. Results are [`SourcePassage`]s so callers
+    /// always label them distinctly from the red-letter corpus.
+    pub async fn retrieve_tanakh(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SourcePassage>, StoreError> {
+        const CANDIDATES: usize = 20;
+        const K: f32 = 60.0;
+        let q = crate::stopwords::strip(query);
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ft = self.rank_tanakh_bm25(&q, CANDIDATES).await?;
+        let fused = match &self.embedder {
+            Some(embedder) => {
+                let emb = embedder.embed_query(query).await?;
+                let v = self.rank_tanakh_vector(&emb, CANDIDATES).await?;
+                rrf_fuse(&[ft, v], K, limit)
+            }
+            None => rrf_fuse(&[ft], K, limit),
+        };
+        if fused.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.fetch_tanakh(&fused).await
+    }
+
+    /// BM25 leg over `tanakh.text`: ranked verse refs (the record ids) for `q`.
+    async fn rank_tanakh_bm25(&self, q: &str, limit: usize) -> Result<Vec<String>, StoreError> {
+        let sql = "SELECT record::id(id) AS id, search::score(0) AS s FROM tanakh
+                   WHERE text @0,OR@ $q ORDER BY s DESC LIMIT $limit;";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("q", q.to_string()))
+            .bind(("limit", limit))
+            .await?;
+        Ok(res
+            .take::<Vec<IdScoreRow>>(0)?
+            .into_iter()
+            .map(|r| r.id)
+            .collect())
+    }
+
+    /// Vector leg over `tanakh.emb` (HNSW): ranked verse refs for `embedding`.
+    async fn rank_tanakh_vector(
+        &self,
+        embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<String>, StoreError> {
+        let sql = format!("SELECT record::id(id) AS id FROM tanakh WHERE emb <|{limit},64|> $emb;");
+        let mut res = self.db.query(sql).bind(("emb", embedding.to_vec())).await?;
+        Ok(res
+            .take::<Vec<IdRow>>(0)?
+            .into_iter()
+            .map(|r| r.id)
+            .collect())
+    }
+
+    /// Fetch Tanakh verses for fused `(ref, score)` pairs, in fused-rank order.
+    async fn fetch_tanakh(&self, ids: &[(String, f32)]) -> Result<Vec<SourcePassage>, StoreError> {
+        let id_list: Vec<String> = ids.iter().map(|(id, _)| id.clone()).collect();
+        let sql = "SELECT ref, text, book, category, translation FROM tanakh
+                   WHERE record::id(id) IN $ids;";
+        let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
+        let mut by_ref: std::collections::HashMap<String, SourcePassage> = res
+            .take::<Vec<SourcePassage>>(0)?
+            .into_iter()
+            .map(|p| (p.ref_.clone(), p))
+            .collect();
+        let passages = ids
+            .iter()
+            .filter_map(|(id, score)| {
+                by_ref.remove(id).map(|mut p| {
+                    p.score = Some(*score);
+                    p
+                })
+            })
+            .collect();
+        Ok(passages)
     }
 
     /// BM25-only retrieval across both text registers (the fallback when no embedder is set).

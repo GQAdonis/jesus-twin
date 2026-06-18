@@ -283,3 +283,52 @@ and more reach 2-leg agreement (Tier 1), which should *raise* the gate's groundi
 recalibration quantifies it and is the regression baseline. (The ~300-row human-annotation milestone
 later promotes drafts to verified renderings and triggers another recalibration — a no-op under
 leg-agreement if nothing shifted.)
+
+---
+
+# hebrew-bible — the Tanakh as a labeled source tool (2026-06-18)
+
+The Hebrew Bible (JPS 1917) is *his intellectual furniture* — what he quoted, alluded to (*remez*),
+and reasoned from (*kal v'homer*). This change makes it a **separate, retrievable corpus**, always
+labeled **his source material, never his words** (CLAUDE.md Bible scope).
+
+## Source — public-domain JPS 1917 via Sefaria (NOT the fragile scrape)
+
+The old `ingest_tanakh.py` scraped sacred-texts.com with heuristic URL slugs + fake verse counters
+(now 403, and mis-referenced). Rewritten to use the **Sefaria API**, which serves the JPS 1917
+**verse-accurate** as a named version. Critical: Sefaria's *default* English is the modern RJPS
+(CC-BY-NC, copyrighted), so the script pins the exact public-domain version
+`"The Holy Scriptures: A New Translation (JPS 1917)"` (license "Public Domain") via `ven=`. Stdlib
+only — no third-party deps. Verified: Genesis + Exodus → 2,743 verse-accurate records ("In the
+beginning God created the heaven and the earth.").
+
+## Store — a separate `tanakh` table, never blended
+
+- Schema: `tanakh` table (`ref/text/book/category/translation/emb`) with its own BM25 + HNSW
+  indexes — wholly separate from `saying`.
+- `SourcePassage` is a distinct type from `Passage`, so the two corpora can't be conflated;
+  adapters/CLI label results "source material… NOT his own words".
+- `SurrealStore::ingest_tanakh` (+ `embed_tanakh`) and `retrieve_tanakh` (BM25 + vector RRF).
+- New CLI: `ingest-tanakh`, `retrieve-tanakh`. Test `ingests_tanakh_as_separate_source_corpus`
+  pins the load + the **separation invariant** (Tanakh must not leak into red-letter retrieval).
+
+## Verified on a sample (CPU, BM25)
+
+Ingested the 2,743-verse Genesis+Exodus sample text-only; `retrieve-tanakh "created the heaven and
+the earth"` → Genesis 1:1/2:4/2:1; `"bread from heaven manna"` → the Exodus 16 manna verses — each
+under the source-material label. The red-letter `retrieve("bread")` returns nothing (separation holds).
+
+## Handoff — the full corpus run (the GPU/network step to trigger)
+
+```bash
+python ingest_tanakh.py --out build/tanakh.jsonl                 # ~23k verses from Sefaria (network)
+jesus-twin ingest-tanakh ../build/tanakh.jsonl --db ./twin.db    # load + embed (GPU; --features cuda)
+jesus-twin retrieve-tanakh "have you not read" --db ./twin.db    # spot-check
+```
+
+## Deferred (noted, not in this change)
+
+Surfacing the Tanakh as a "his source material" block inside `ask`/`serve` answers (an orchestrator
+addition that runs `retrieve_tanakh` alongside the red-letter retrieval and emits it as a distinct,
+labeled context block / AG-UI chunk) — the store + retrieval primitives are in place; the
+orchestrator wiring + the M09/remez cross-reference graph edges are a follow-up.

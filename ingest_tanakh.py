@@ -8,17 +8,20 @@ referencing what he himself would have cited, without claiming these as his word
 This is *not* used for persona training. It is a separate retrieval path,
 clearly labeled in the agent's responses.
 
-Source: JPS 1917 English Translation (public domain)
-https://www.sacred-texts.com/bib/jps/
+Source: JPS 1917 English Translation (public domain), served verse-accurate by the Sefaria
+API (the exact version "The Holy Scriptures: A New Translation (JPS 1917)", license
+"Public Domain" — NOT Sefaria's default modern RJPS, which is CC-BY-NC).
 
-Usage:
-    pip install openpyxl requests beautifulsoup4 lxml
-    python ingest_tanakh.py --out build/tanakh.jsonl
+Usage (stdlib only — no third-party deps):
+    python ingest_tanakh.py --out build/tanakh.jsonl              # full Tanakh (~23k verses)
+    python ingest_tanakh.py --out build/tanakh.sample.jsonl --limit 2   # first 2 books (sample)
+    python ingest_tanakh.py --dry-run
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -70,89 +73,63 @@ TANAKH_BOOKS = [
 ]
 
 
-def fetch_jps_1917(book_name: str) -> str | None:
-    """Fetch a book of the JPS 1917 Tanakh from sacred-texts.com.
+# The public-domain JPS 1917 version, served verse-accurate by Sefaria's API. (Sefaria's
+# DEFAULT English text is the modern RJPS — CC-BY-NC, NOT public domain — so we MUST pin this
+# exact version title via `ven=`.)
+JPS_1917 = "The Holy Scriptures: A New Translation (JPS 1917)"
+SEFARIA_API = "https://www.sefaria.org/api/texts"
 
-    This is a placeholder — actual fetching requires HTML parsing of
-    the book/chapter/verse structure. The full implementation is
-    deferred to a follow-up PR.
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
 
-    Returns the raw text or None if fetch fails.
-    """
-    # The JPS 1917 is at: https://www.sacred-texts.com/bib/jps/
-    # Each book has a page like: https://www.sacred-texts.com/bib/jps/jps_gen.htm
-    # We use a simple HTML-to-text extraction.
+
+def _clean(s: str) -> str:
+    """Strip Sefaria's HTML footnote/markup and normalize whitespace."""
+    return _WS_RE.sub(" ", _TAG_RE.sub("", s)).replace(" ", " ").strip()
+
+
+def fetch_book(book_name: str, category: str) -> list[dict]:
+    """Fetch one Tanakh book (JPS 1917) from Sefaria as verse-accurate passage records.
+
+    One request returns the whole book as nested chapters→verses, so refs are exact
+    (`Book chapter:verse`). Returns `{ref, text, book, category, translation}` records;
+    empty list on failure (caller logs and continues)."""
+    import urllib.parse
+    import urllib.request
+
+    url = (
+        f"{SEFARIA_API}/{urllib.parse.quote(book_name)}"
+        f"?ven={urllib.parse.quote(JPS_1917)}&context=0&commentary=0&pad=0"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "jesus-twin/1.0"})
     try:
-        import requests
-        from bs4 import BeautifulSoup
-
-        # Map book names to sacred-texts URL slugs
-        url_slug = book_name.lower().replace(" ", "")
-        if url_slug.startswith("i") or url_slug.startswith("ii") or url_slug.startswith("iii"):
-            # I Samuel, II Kings, etc.
-            roman = url_slug[:2] if url_slug.startswith("ii") else url_slug[:1]
-            base = url_slug[2:]
-            url = f"https://www.sacred-texts.com/bib/jps/jps_{base}{roman.lower()}.htm"
-        else:
-            url = f"https://www.sacred-texts.com/bib/jps/jps_{url_slug[:3]}.htm"
-
-        resp = requests.get(url, timeout=30, headers={"User-Agent": "jesus-twin/1.0"})
-        if resp.status_code != 200:
-            return None
-
-        soup = BeautifulSoup(resp.text, "lxml")
-        # Remove navigation and headers
-        for tag in soup(["script", "style", "nav", "header", "footer"]):
-            tag.decompose()
-        text = soup.get_text(separator="\n", strip=True)
-        return text
-    except Exception as e:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.load(resp)
+    except Exception as e:  # noqa: BLE001 — network/parse; log and skip the book
         print(f"WARN: failed to fetch {book_name}: {e}")
-        return None
-
-
-def parse_into_passages(raw_text: str, book_name: str, category: str) -> list[dict]:
-    """Parse the raw text into structured passages.
-
-    The sacred-texts format is roughly: chapter headings, then verse-by-verse text.
-    We split on common patterns and produce {ref, text, book, category} records.
-    """
-    if not raw_text:
         return []
-    passages = []
-    # Heuristic split: each verse is roughly a paragraph.
-    # Real implementation would parse the HTML structure for verse numbers.
-    lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
-    chapter = 1
-    verse = 1
-    for line in lines:
-        if len(line) < 10:
-            # Likely a header or chapter marker
-            if line.isdigit():
-                chapter = int(line)
-                verse = 1
-            continue
-        if len(line) > 500:
-            # Long line — likely multiple verses; split on common verse markers
-            for segment in line.split("; "):
-                if len(segment) > 20:
-                    passages.append({
-                        "ref": f"{book_name} {chapter}:{verse}",
-                        "text": segment,
-                        "book": book_name,
-                        "category": category,
-                        "translation": "JPS 1917",
-                    })
-                    verse += 1
-        else:
+
+    if data.get("license") != "Public Domain" or "1917" not in (data.get("versionTitle") or ""):
+        print(f"WARN: {book_name}: unexpected version/license "
+              f"({data.get('versionTitle')!r}/{data.get('license')!r}) — skipping")
+        return []
+
+    chapters = data.get("text") or []
+    passages: list[dict] = []
+    for c_idx, chapter in enumerate(chapters, start=1):
+        # A book is list[chapter]; a chapter is list[verse]. Guard against flat shapes.
+        verses = chapter if isinstance(chapter, list) else [chapter]
+        for v_idx, verse in enumerate(verses, start=1):
+            text = _clean(verse if isinstance(verse, str) else " ".join(verse))
+            if not text:
+                continue
             passages.append({
-                "ref": f"{book_name} {chapter}:{verse}",
-                "text": line,
+                "ref": f"{book_name} {c_idx}:{v_idx}",
+                "text": text,
                 "book": book_name,
                 "category": category,
                 "translation": "JPS 1917",
             })
-            verse += 1
     return passages
 
 
@@ -177,13 +154,12 @@ def main() -> int:
         if args.limit and i >= args.limit:
             break
         print(f"[{i+1}/{len(TANAKH_BOOKS)}] {book} ({category})...", end=" ", flush=True)
-        raw = fetch_jps_1917(book)
-        if not raw:
+        passages = fetch_book(book, category)
+        if not passages:
             print("FAILED")
             continue
-        passages = parse_into_passages(raw, book, category)
         all_passages.extend(passages)
-        print(f"OK ({len(passages)} passages)")
+        print(f"OK ({len(passages)} verses)")
 
     with open(out_path, "w") as f:
         for p in all_passages:

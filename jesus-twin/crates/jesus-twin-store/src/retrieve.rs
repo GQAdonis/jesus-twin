@@ -88,3 +88,24 @@ impl RetrievalSet {
         self.passages.first().and_then(|p| p.score).unwrap_or(0.0)
     }
 }
+
+/// One retrieved Tanakh verse — **his source material, NOT his words** (hebrew-bible). A distinct
+/// type from [`Passage`] so the two corpora can never be conflated: adapters label these "source
+/// material" / "what he drew on", never as the twin's own teaching.
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub struct SourcePassage {
+    #[serde(rename = "ref")]
+    #[surreal(rename = "ref")]
+    pub ref_: String,
+    pub text: String,
+    #[serde(default)]
+    pub book: String,
+    /// `torah` | `prophets` | `writings`.
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub translation: String,
+    /// Fused retrieval score, populated by the query. `None` for stored records.
+    #[serde(default)]
+    pub score: Option<f32>,
+}

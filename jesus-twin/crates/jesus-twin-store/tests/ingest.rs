@@ -104,3 +104,55 @@ async fn retrieve_returns_empty_for_out_of_corpus_query() {
     );
     assert_eq!(results.top_score(), 0.0);
 }
+
+/// hebrew-bible: the Tanakh loads into its OWN table and retrieves as labeled source material
+/// (BM25-only here — no embedder). It must NOT leak into the red-letter `saying` retrieval.
+#[tokio::test]
+async fn ingests_tanakh_as_separate_source_corpus() {
+    use std::io::Write;
+
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+    let path = std::env::temp_dir().join(format!("tanakh-test-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&path).expect("temp jsonl");
+        writeln!(
+            f,
+            r#"{{"ref":"Genesis 1:1","text":"In the beginning God created the heaven and the earth.","book":"Genesis","category":"torah","translation":"JPS 1917"}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ref":"Deuteronomy 8:3","text":"man doth not live by bread only, but by every thing that proceedeth out of the mouth of the LORD.","book":"Deuteronomy","category":"torah","translation":"JPS 1917"}}"#
+        )
+        .unwrap();
+    }
+
+    let n = store
+        .ingest_tanakh(path.to_str().unwrap())
+        .await
+        .expect("ingest tanakh");
+    assert_eq!(n, 2, "two verses loaded");
+
+    let hits = store
+        .retrieve_tanakh("bread", 5)
+        .await
+        .expect("retrieve tanakh");
+    assert!(
+        hits.iter().any(|p| p.ref_ == "Deuteronomy 8:3"),
+        "BM25 should surface the bread verse, got {:?}",
+        hits.iter().map(|p| &p.ref_).collect::<Vec<_>>()
+    );
+    assert!(
+        hits.iter().all(|p| p.translation == "JPS 1917"),
+        "every Tanakh result is labeled JPS 1917 source material"
+    );
+
+    // Separation: the red-letter `saying` retrieval must not return Tanakh verses.
+    let saying_hits = store.retrieve("bread", 5).await.expect("retrieve saying");
+    assert!(
+        saying_hits.passages.is_empty(),
+        "Tanakh must not leak into the red-letter saying corpus"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}

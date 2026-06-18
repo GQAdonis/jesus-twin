@@ -46,6 +46,20 @@ DEFINE TABLE IF NOT EXISTS reasoning_move SCHEMALESS;
 DEFINE TABLE IF NOT EXISTS audience SCHEMALESS;
 DEFINE TABLE IF NOT EXISTS location SCHEMALESS;
 DEFINE TABLE IF NOT EXISTS concept SCHEMALESS;
+
+-- `tanakh` is a SEPARATE corpus (hebrew-bible): the Hebrew Bible (JPS 1917, public domain) as
+-- HIS SOURCE MATERIAL — what he quoted and reasoned from — never blended with the red-letter
+-- `saying` table and always labeled as source, not his words (CLAUDE.md Bible scope). One text
+-- register, so one BM25 + one HNSW index (vs. saying's original/modern pair).
+DEFINE TABLE IF NOT EXISTS tanakh SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS ref         ON tanakh TYPE string;
+DEFINE FIELD IF NOT EXISTS text        ON tanakh TYPE string;
+DEFINE FIELD IF NOT EXISTS book        ON tanakh TYPE string DEFAULT "";
+DEFINE FIELD IF NOT EXISTS category    ON tanakh TYPE string DEFAULT "";
+DEFINE FIELD IF NOT EXISTS translation ON tanakh TYPE string DEFAULT "JPS 1917";
+DEFINE FIELD IF NOT EXISTS emb         ON tanakh TYPE option<array<float>>;
+DEFINE INDEX IF NOT EXISTS tanakh_ft  ON tanakh FIELDS text FULLTEXT ANALYZER twin_an BM25;
+DEFINE INDEX IF NOT EXISTS tanakh_vec ON tanakh FIELDS emb  HNSW DIMENSION 768 DIST COSINE;
 "#;
 
 /// Embedding dimension for the HNSW indexes. Must match the embedding model wired in

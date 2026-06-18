@@ -38,3 +38,6 @@ twin.db.*/
 
 # Machine-draft modern text sidecar (modern-legs-v1) — regenerable, indexing-only
 build/modern_drafts.jsonl
+
+# Tanakh corpus (hebrew-bible) — regenerate with `python ingest_tanakh.py`; large, public-domain JPS 1917
+build/tanakh*.jsonl
