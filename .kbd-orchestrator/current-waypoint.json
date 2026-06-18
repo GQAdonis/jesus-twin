@@ -1,8 +1,8 @@
 {
   "phase": "build-agent",
   "change": "wave-1-gate-calibration",
-  "status": "planned",
-  "last_updated": "2026-06-10T00:00:00Z",
+  "status": "wave-1-complete",
+  "last_updated": "2026-06-18T00:00:00Z",
   "changes": {
     "rag-prototype": "complete",
     "annotation-guide": "complete",
@@ -11,11 +11,11 @@
     "eval-suite": "complete",
     "fix-context-attribution": "complete-archived",
     "lora-train": "superseded-by-retrain-dual-base",
-    "gate-calibration": "DONE-committed-8659b79-branch-feat-gate-calibration-three-tier",
-    "modern-legs-v1": "planned-wave-1",
-    "hebrew-bible": "planned-wave-1",
-    "eval-life-questions": "planned-wave-1",
-    "annotation-guide-fix": "planned-wave-1",
+    "gate-calibration": "DONE-merged-main-pr1",
+    "annotation-guide-fix": "DONE-committed-dd95c39-branch-feat-wave1-docs-eval",
+    "eval-life-questions": "DONE-committed-dd95c39-branch-feat-wave1-docs-eval",
+    "modern-legs-v1": "DONE-pipeline-committed-b5edd01-verified-on-sample-full-run-is-handoff",
+    "hebrew-bible": "DONE-pipeline-committed-0cd1bab-verified-on-sample-full-run-is-handoff",
     "principle-index-v1": "planned-wave-2",
     "principle-tier": "planned-wave-2",
     "gospel-context-kb": "planned-wave-2",
@@ -25,7 +25,7 @@
     "honesty-surface-ui": "wave-3-blocked-on-ui",
     "production-lora": "superseded-by-retrain-dual-base"
   },
-  "next_action": "gate-calibration COMMITTED (8659b79, branch feat/gate-calibration-three-tier; not pushed). PMPO Assess->Plan->Execute->Reflect complete. Shipped: three-tier leg-agreement gate, low-confidence chunk + addendum, retrieval.jsonl rescale, refusal eval updated to honest-decline contract, eval/run.py probe fix. Live eval: grounding 30/30, method-app 15/15; refusal 9/30 (keyword lower-bound). HONEST RESIDUALS (FINDINGS.md Reflect): (1) refusal eval needs an LLM-judge — keyword matching can't measure honest-decline vs confabulation; (2) Tier-2 in-prose hedge unreliable (base model answers ~half of single-leg out-of-corpus; non-confabulating where inspected but doesn't reliably decline) — honesty currently lives in the CHUNK not the text; (3) hard refusal of adjacent-topic out-of-corpus needs the deferred discriminating signal = PMPO option B. Pre-existing unrelated main failure: jesus-twin-api openai non_stream_refusal text drift (not touched). NEXT: push/PR if wanted; then remaining Wave 1 (modern-legs-v1, hebrew-bible, eval-life-questions, annotation-guide-fix) are GPU-independent and parallelizable.",
+  "next_action": "WAVE 1 COMPLETE. gate-calibration merged to main (PR #1). The other four shipped on branch feat/wave1-docs-eval (commits dd95c39 annotation-guide-fix + eval-life-questions; b5edd01 modern-legs-v1; 0cd1bab hebrew-bible) — push + open a PR. annotation-guide-fix: §3 rewritten to all 18 canonical moves. eval-life-questions: 60-question tier benchmark + AG-UI runner; baseline 31/60 (T3 0/9 — gate can't hard-refuse, quantifies the option-B need). modern-legs-v1: machine-draft text_modern pipeline (modern-drafts/apply-modern-drafts CLI; machine_draft flag; display/training bright line tested) verified on 10-passage sample. hebrew-bible: Tanakh JPS-1917 via Sefaria (verse-accurate, public-domain) into a separate tanakh table; SourcePassage; ingest-tanakh/retrieve-tanakh CLI; separation test; verified on 2,743-verse sample. GPU/network HANDOFFS (docs/FINDINGS.md): full 927-passage modern-draft gen + apply + recalibrate; full ~23k-verse Tanakh fetch + embed + orchestrator source-block wiring. NEXT PHASE: Wave 2 (principle-index-v1, principle-tier, gospel-context-kb, episodic-memory) — model-assisted, retrieval-metadata-only, GPU-light.",
   "blockers": [],
   "notes": "lora-train moved to deferred per assessment.md (75 rows + lr 2e-4x3 collapsed on L4; gate retrain on >=300 annotated rows). RAG-only is the shippable interim build; fix-context-attribution makes that build's voice correct without the fine-tune."
 }
