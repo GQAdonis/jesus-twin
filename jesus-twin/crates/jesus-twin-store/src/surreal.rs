@@ -86,6 +86,13 @@ impl SurrealStore {
         Ok(count)
     }
 
+    /// Apply machine-tagged life-domain facets (`principle-index-v1`) from a sidecar onto existing
+    /// `saying` rows. Retrieval metadata only (no re-embed — facets don't change the vectors).
+    /// See [`ingest::apply_principle_tags`]. Returns the number of rows tagged.
+    pub async fn ingest_principle_tags(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        ingest::apply_principle_tags(&self.db, jsonl_path).await
+    }
+
     /// Load the Tanakh JSONL into the separate `tanakh` table (hebrew-bible: his source material)
     /// and embed it if an embedder is attached. Returns the number of verses loaded.
     pub async fn ingest_tanakh(&self, jsonl_path: &str) -> Result<usize, StoreError> {
@@ -190,7 +197,7 @@ impl SurrealStore {
         // ANY term. Scores from both registers are summed so a hit in either ranks it.
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation,
+                   context, location, occasion, move, translation, domains, principles,
                    (search::score(0) + search::score(1)) AS score
             FROM saying
             WHERE text_original @0,OR@ $q OR text_modern @1,OR@ $q
@@ -397,7 +404,7 @@ impl SurrealStore {
         let id_list: Vec<String> = ids.iter().map(|(id, _)| id.clone()).collect();
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation
+                   context, location, occasion, move, translation, domains, principles
             FROM saying WHERE record::id(id) IN $ids;
         ";
         let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
@@ -469,7 +476,7 @@ impl Store for SurrealStore {
     async fn get_by_ref(&self, scripture_ref: &str) -> Result<Option<Passage>, StoreError> {
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation
+                   context, location, occasion, move, translation, domains, principles
             FROM saying WHERE ref = $ref LIMIT 1;
         ";
         let mut res = self
@@ -484,7 +491,7 @@ impl Store for SurrealStore {
     async fn find_by_move(&self, move_id: &str, limit: usize) -> Result<Vec<Passage>, StoreError> {
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation
+                   context, location, occasion, move, translation, domains, principles
             FROM saying WHERE move = $move LIMIT $limit;
         ";
         let mut res = self

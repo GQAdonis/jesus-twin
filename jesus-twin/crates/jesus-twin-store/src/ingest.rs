@@ -286,3 +286,61 @@ pub async fn embed_tanakh(db: &Surreal<Db>, embedder: &dyn Embed) -> Result<(), 
     tracing::info!(count = rows.len(), "embedded tanakh for vector retrieval");
     Ok(())
 }
+
+/// One sidecar line of machine-tagged life-domain facets (`principle-index-v1`).
+#[derive(Debug, Deserialize)]
+struct PrincipleTag {
+    id: String,
+    #[serde(default)]
+    domains: Vec<String>,
+    #[serde(default)]
+    principles: Vec<String>,
+}
+
+/// Apply machine-tagged `domains` / `principles` facets from a sidecar JSONL
+/// (`{id, domains, principles}` per line) onto existing `saying` rows, flagging each
+/// `machine_tagged = true`. **Retrieval metadata only** — facets steer retrieval and feed Tier-2
+/// principle-bridging; they are never displayed (`context_lines` uses `text_original`) or trained
+/// (SFT reads the human xlsx). Idempotent; a wrong tag costs at most a retrieval miss, never
+/// fabricated content. Human review later promotes tags (`machine_tagged = false`). Returns the
+/// number of rows tagged.
+pub async fn apply_principle_tags(db: &Surreal<Db>, jsonl_path: &str) -> Result<usize, StoreError> {
+    let file = std::fs::File::open(jsonl_path).map_err(|source| StoreError::Io {
+        path: jsonl_path.to_string(),
+        source,
+    })?;
+    let mut tagged = 0usize;
+    for (i, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|source| StoreError::Io {
+            path: jsonl_path.to_string(),
+            source,
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let tag: PrincipleTag =
+            serde_json::from_str(&line).map_err(|source| StoreError::Parse {
+                line: i + 1,
+                source,
+            })?;
+        if tag.domains.is_empty() && tag.principles.is_empty() {
+            continue;
+        }
+        db.query(
+            "UPDATE type::record('saying', $id)
+             SET domains = $domains, principles = $principles, machine_tagged = true;",
+        )
+        .bind(("id", tag.id))
+        .bind(("domains", tag.domains))
+        .bind(("principles", tag.principles))
+        .await?
+        .check()?;
+        tagged += 1;
+    }
+    tracing::info!(
+        count = tagged,
+        path = jsonl_path,
+        "applied principle-index facets"
+    );
+    Ok(tagged)
+}

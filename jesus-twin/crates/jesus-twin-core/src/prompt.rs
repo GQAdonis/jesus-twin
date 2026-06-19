@@ -71,6 +71,34 @@ pub fn assemble_context_low_confidence(passages: &[String]) -> String {
     format!("{base}\n\n{LOW_CONFIDENCE_ADDENDUM}")
 }
 
+/// The Tier-2 **principle-bridging** addendum head (principle-tier). Used when the retrieved
+/// passages carry machine-tagged `principles` facets: instead of merely declining, the model
+/// names the governing principle the passages establish and speaks to how it bears on the asked
+/// (adjacent) situation — then says where the record stops. Per-turn context only; NOT a
+/// SYSTEM_PROMPT edit (see the parity note on [`LOW_CONFIDENCE_ADDENDUM`]).
+pub const PRINCIPLE_BRIDGING_HEAD: &str = "[These passages don't address the exact situation, but \
+they establish a principle that bears on it. Speak to that principle plainly and in your own \
+voice, then say where the record stops rather than reaching past it. The principle(s) at stake:";
+
+/// Like [`assemble_context_low_confidence`], but bridges via the supplied governing `principles`
+/// (the retrieved passages' facets). Empty passages → empty block; empty principles → fall back to
+/// the plain low-confidence hedge (so callers can pass through unconditionally).
+pub fn assemble_context_principle_tier(passages: &[String], principles: &[String]) -> String {
+    let base = assemble_context(passages);
+    if base.is_empty() {
+        return String::new();
+    }
+    if principles.is_empty() {
+        return format!("{base}\n\n{LOW_CONFIDENCE_ADDENDUM}");
+    }
+    let list = principles
+        .iter()
+        .map(|p| format!("- {}", p.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{base}\n\n{PRINCIPLE_BRIDGING_HEAD}\n{list}]")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +124,32 @@ mod tests {
     fn empty_passages_yield_no_instruction() {
         assert_eq!(assemble_context(&[]), "");
         assert_eq!(assemble_context_low_confidence(&[]), "");
+    }
+
+    #[test]
+    fn principle_tier_bridges_via_principles() {
+        let p = ["Mark 12:29-31: Hear, Israel...".to_string()];
+        let block = assemble_context_principle_tier(
+            &p,
+            &["Love of God and neighbor is the whole of the law.".to_string()],
+        );
+        assert!(block.contains("Mark 12:29-31"), "keeps the grounding block");
+        assert!(
+            block.contains(PRINCIPLE_BRIDGING_HEAD),
+            "uses the bridging head"
+        );
+        assert!(
+            block.contains("Love of God and neighbor is the whole of the law."),
+            "names the principle"
+        );
+    }
+
+    #[test]
+    fn principle_tier_empty_principles_falls_back_to_hedge() {
+        let p = ["Mark 12:29-31: Hear, Israel...".to_string()];
+        let block = assemble_context_principle_tier(&p, &[]);
+        assert!(block.trim_end().ends_with(LOW_CONFIDENCE_ADDENDUM));
+        assert_eq!(block, assemble_context_low_confidence(&p));
     }
 
     #[test]

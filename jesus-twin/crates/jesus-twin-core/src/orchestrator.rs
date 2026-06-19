@@ -124,20 +124,33 @@ where
             state: state_snapshot(&set),
         });
 
-        // Tier 2: flag the turn for the honesty surface (single-leg grounding). Additive,
-        // namespaced — standard clients ignore it; the AG-UI adapter projects it verbatim.
+        // Tier 2 (principle-tier): when the retrieved passages carry principle facets
+        // (principle-index-v1), bridge the adjacent question to those principles; else the plain
+        // low-confidence hedge. The principles ride on the honesty chunk too.
+        let principles = if low_confidence {
+            collect_principles(&set)
+        } else {
+            Vec::new()
+        };
         if low_confidence {
             events.push(AgentEvent::Custom {
                 name: "x-jesus-twin/low-confidence".to_string(),
-                data: serde_json::json!({ "legs_matched": set.top_legs_matched }),
+                data: serde_json::json!({
+                    "legs_matched": set.top_legs_matched,
+                    "principles": principles,
+                }),
             });
         }
 
-        // 4. Generate (voice), conditioned on the retrieved passages. On a low-confidence turn
-        // the context carries the in-voice hedge addendum (a per-turn injection; SYSTEM_PROMPT
-        // is untouched, preserving train/inference parity).
+        // 4. Generate (voice), conditioned on the retrieved passages. On a low-confidence turn the
+        // context carries the in-voice hedge (principle-bridging when principles exist) — a per-turn
+        // injection; SYSTEM_PROMPT is untouched, preserving train/inference parity.
         let context = if low_confidence {
-            prompt::assemble_context_low_confidence(&context_lines(&set))
+            if principles.is_empty() {
+                prompt::assemble_context_low_confidence(&context_lines(&set))
+            } else {
+                prompt::assemble_context_principle_tier(&context_lines(&set), &principles)
+            }
         } else {
             prompt::assemble_context(&context_lines(&set))
         };
@@ -215,6 +228,26 @@ fn context_lines(set: &RetrievalSet) -> Vec<String> {
         .collect()
 }
 
+/// Collect the distinct governing principles of the retrieved passages (principle-index-v1
+/// facets), in retrieval order, capped at a few. Tier-2 principle-bridging speaks to these — they
+/// are machine-tagged metadata, never the model's own invention. Empty until passages are tagged.
+fn collect_principles(set: &RetrievalSet) -> Vec<String> {
+    const MAX_PRINCIPLES: usize = 3;
+    let mut out: Vec<String> = Vec::new();
+    for p in &set.passages {
+        for principle in &p.principles {
+            let principle = principle.trim();
+            if !principle.is_empty() && !out.iter().any(|x| x == principle) {
+                out.push(principle.to_string());
+                if out.len() >= MAX_PRINCIPLES {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// A compact JSON view of the retrieval set for the `StateSnapshot` event (drives the
 /// mind-map / debug surfaces). Refs + scores only; full text is already in `Citation`s.
 fn state_snapshot(set: &RetrievalSet) -> serde_json::Value {
@@ -248,6 +281,8 @@ mod tests {
                 occasion: String::new(),
                 move_: String::new(),
                 translation: String::new(),
+                domains: Vec::new(),
+                principles: vec!["Trust the Father's provision over anxious striving.".into()],
                 score: Some(0.03),
             }],
             top_legs_matched: 2,

@@ -207,6 +207,29 @@ enum Command {
         #[arg(long, default_value_t = 5)]
         limit: usize,
     },
+    /// Machine-tag every saying with life-domain + principle facets into a sidecar
+    /// (principle-index-v1). Retrieval-metadata only — never displayed or trained. Requires
+    /// `--features mistralrs`. Use `--limit` to sample.
+    PrincipleTag {
+        /// Corpus to tag.
+        #[arg(default_value = "../build/rag_corpus.jsonl")]
+        jsonl: String,
+        /// Output sidecar (`{id, ref, domains, principles, machine_tagged:true}` per line).
+        #[arg(long, default_value = "../build/principle_tags.jsonl")]
+        out: String,
+        /// Only tag the first N passages (0 = all). For sampling / verification.
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+    },
+    /// Apply principle-index facets from a sidecar into the store (flagging `machine_tagged`).
+    ApplyPrincipleTags {
+        /// Sidecar produced by `principle-tag`.
+        #[arg(default_value = "../build/principle_tags.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -267,6 +290,10 @@ async fn main() -> anyhow::Result<()> {
         Command::IngestTanakh { jsonl, db } => ingest_tanakh(&jsonl, db.as_deref()).await,
         Command::RetrieveTanakh { query, db, limit } => {
             retrieve_tanakh(&query, db.as_deref(), limit).await
+        }
+        Command::PrincipleTag { jsonl, out, limit } => principle_tag(&jsonl, &out, limit).await,
+        Command::ApplyPrincipleTags { jsonl, db } => {
+            apply_principle_tags(&jsonl, db.as_deref()).await
         }
         Command::Chat => {
             // TODO(build step 3+): drive the orchestrator interactively.
@@ -712,9 +739,164 @@ async fn retrieve_tanakh(query: &str, db: Option<&str>, limit: usize) -> anyhow:
     Ok(())
 }
 
+/// The ~20 life-domain taxonomy (principle-index-v1; plan Change 11). Machine tagging picks from
+/// this fixed set so a question about a domain can boost passages tagged with it. Used by the
+/// `mistralrs`-gated tagger and the parser tests.
+#[cfg(any(feature = "mistralrs", test))]
+const TAXONOMY: &[&str] = &[
+    "money/provision",
+    "fear/anxiety",
+    "grief",
+    "marriage/divorce",
+    "parenting",
+    "conflict/forgiveness",
+    "ambition/status",
+    "honesty",
+    "illness",
+    "purpose/calling",
+    "enemies",
+    "doubt",
+    "prayer",
+    "wealth/generosity",
+    "judgment of others",
+    "work",
+    "power",
+    "loneliness",
+    "temptation",
+    "death",
+];
+
+/// Parse a tagging reply into canonical domains (matched against [`TAXONOMY`]) + principle lines.
+/// Lenient: tolerates casing/extra prose; keeps only domains in the taxonomy. Pure — unit-tested.
+#[cfg(any(feature = "mistralrs", test))]
+fn parse_principle_tags(reply: &str) -> (Vec<String>, Vec<String>) {
+    let mut domains = Vec::new();
+    let mut principles = Vec::new();
+    for line in reply.lines() {
+        let l = line.trim();
+        let low = l.to_lowercase();
+        if let Some(rest) = low.strip_prefix("domains:") {
+            for part in rest.split(',') {
+                let p = part.trim();
+                if let Some(canon) = TAXONOMY
+                    .iter()
+                    .find(|t| **t == p || p.contains(*t) || t.contains(p))
+                {
+                    if !domains.iter().any(|d| d == canon) {
+                        domains.push((*canon).to_string());
+                    }
+                }
+            }
+        } else if let Some(_rest) = low.strip_prefix("principle:") {
+            // Preserve original casing of the principle text.
+            let p = l[l.to_lowercase().find("principle:").unwrap() + "principle:".len()..].trim();
+            if !p.is_empty() {
+                principles.push(p.to_string());
+            }
+        }
+    }
+    (domains, principles)
+}
+
+/// Machine-tag sayings with life-domain + principle facets (principle-index-v1) into a sidecar.
+/// Plain generation; retrieval-metadata only — never displayed or trained.
+#[cfg(feature = "mistralrs")]
+async fn principle_tag(jsonl: &str, out: &str, limit: usize) -> anyhow::Result<()> {
+    use jesus_twin_inference::{Engine, GenRequest};
+    use std::io::Write;
+
+    let system = format!(
+        "You label a saying with the life DOMAINS it speaks to and the governing PRINCIPLE it \
+establishes. Choose domains ONLY from this list: {}. State one short principle, derived from the \
+saying itself — never invent beyond it. Output EXACTLY two lines and nothing else:\n\
+DOMAINS: <comma-separated domains from the list>\n\
+PRINCIPLE: <one short sentence>",
+        TAXONOMY.join(", ")
+    );
+
+    let engine = build_mistral_engine().await?;
+    let content = std::fs::read_to_string(jsonl)?;
+    let mut records: Vec<jesus_twin_store::RagRecord> = Vec::new();
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        records.push(serde_json::from_str(line).map_err(|e| anyhow::anyhow!("{jsonl}: {e}"))?);
+    }
+    if limit > 0 {
+        records.truncate(limit);
+    }
+    let total = records.len();
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let mut f = std::fs::File::create(out)?;
+    for (i, rec) in records.iter().enumerate() {
+        let reply = engine
+            .generate(GenRequest {
+                system: system.clone(),
+                context: String::new(),
+                user: rec.text_original.clone(),
+            })
+            .await?;
+        let (domains, principles) = parse_principle_tags(&reply);
+        let row = serde_json::json!({
+            "id": rec.id,
+            "ref": rec.ref_,
+            "domains": domains,
+            "principles": principles,
+            "machine_tagged": true,
+        });
+        writeln!(f, "{}", serde_json::to_string(&row)?)?;
+        if (i + 1) % 25 == 0 || i + 1 == total {
+            tracing::info!("tagged {}/{}", i + 1, total);
+        }
+    }
+    println!("wrote {total} principle-index tags to {out}");
+    println!("next: apply-principle-tags {out} --db <store>");
+    Ok(())
+}
+
+#[cfg(not(feature = "mistralrs"))]
+async fn principle_tag(_jsonl: &str, _out: &str, _limit: usize) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "principle-tag requires building --features mistralrs (needs the generation model)"
+    )
+}
+
+/// Apply a principle-index sidecar into the store (no embedder needed — facets don't embed).
+async fn apply_principle_tags(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let count = store.ingest_principle_tags(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("tagged {count} sayings with life-domain + principle facets");
+    Ok(())
+}
+
 async fn open_store(db: Option<&str>) -> anyhow::Result<SurrealStore> {
     Ok(match db {
         Some(path) => SurrealStore::open(path).await?,
         None => SurrealStore::memory().await?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_principle_tags_extracts_canonical_domains_and_principle() {
+        let reply = "DOMAINS: fear/anxiety, money/provision, made-up-domain\n\
+                     PRINCIPLE: God provides; worry changes nothing.";
+        let (domains, principles) = parse_principle_tags(reply);
+        assert_eq!(domains, vec!["fear/anxiety", "money/provision"]); // bogus domain dropped
+        assert_eq!(principles, vec!["God provides; worry changes nothing."]);
+    }
+
+    #[test]
+    fn parse_principle_tags_is_lenient_about_casing_and_noise() {
+        let reply =
+            "Here are the tags.\ndomains: Prayer\nprinciple: Ask, and keep asking.\nthanks!";
+        let (domains, principles) = parse_principle_tags(reply);
+        assert_eq!(domains, vec!["prayer"]);
+        assert_eq!(principles, vec!["Ask, and keep asking."]);
+    }
 }

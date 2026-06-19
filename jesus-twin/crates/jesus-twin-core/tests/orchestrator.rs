@@ -198,6 +198,8 @@ impl Store for FakeStore {
             occasion: String::new(),
             move_: String::new(),
             translation: String::new(),
+            domains: vec!["conflict/forgiveness".into()],
+            principles: vec!["Love of God and neighbor is the whole of the law.".into()],
             score: Some(0.03),
         };
         Ok(RetrievalSet {
@@ -267,6 +269,12 @@ async fn tier2_one_leg_emits_low_confidence_chunk() {
     let (name, data) = chunk.expect("Tier 2 emits a custom chunk");
     assert_eq!(name, "x-jesus-twin/low-confidence");
     assert_eq!(data["legs_matched"], serde_json::json!(1));
+    // principle-tier: the retrieved passage's principle facet rides on the chunk (and into the
+    // bridging context). The FakeStore tags it with one principle.
+    assert_eq!(
+        data["principles"],
+        serde_json::json!(["Love of God and neighbor is the whole of the law."])
+    );
     // Still answers (Tier 2 engages, with the hedge); does not refuse.
     assert!(
         events

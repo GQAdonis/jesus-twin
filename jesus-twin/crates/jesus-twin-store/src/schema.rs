@@ -30,6 +30,13 @@ DEFINE FIELD IF NOT EXISTS translation   ON saying TYPE string DEFAULT "";
 -- (`context_lines` uses `text_original`) and never trained (SFT reads the human xlsx, not the
 -- sidecar). Human-verified renderings (the `Modern Rendering` column) set this back to false.
 DEFINE FIELD IF NOT EXISTS machine_draft  ON saying TYPE bool DEFAULT false;
+-- principle-index-v1 facets: life-domain tags + the governing principles a saying establishes.
+-- Machine-tagged (`machine_tagged = true`) retrieval metadata ONLY — they steer retrieval and
+-- feed Tier-2 principle-bridging, are never displayed (`context_lines` uses `text_original`) or
+-- trained (SFT reads the human xlsx). Human review later promotes them (`machine_tagged = false`).
+DEFINE FIELD IF NOT EXISTS domains        ON saying TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS principles     ON saying TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS machine_tagged ON saying TYPE bool DEFAULT false;
 DEFINE FIELD IF NOT EXISTS emb_original  ON saying TYPE option<array<float>>;
 DEFINE FIELD IF NOT EXISTS emb_modern    ON saying TYPE option<array<float>>;
 

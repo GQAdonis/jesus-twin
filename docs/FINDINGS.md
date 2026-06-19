@@ -332,3 +332,50 @@ Surfacing the Tanakh as a "his source material" block inside `ask`/`serve` answe
 addition that runs `retrieve_tanakh` alongside the red-letter retrieval and emits it as a distinct,
 labeled context block / AG-UI chunk) — the store + retrieval primitives are in place; the
 orchestrator wiring + the M09/remez cross-reference graph edges are a follow-up.
+
+---
+
+# principle-index-v1 + principle-tier — the general-mentor unlock (Wave 2, 2026-06-19)
+
+These two coupled changes turn Tier-2 from "decline what the passages don't cover" into
+**principle-bridging**: name the governing principle the cited passages establish and speak to how
+it bears on an adjacent life question — then say where the record stops.
+
+## principle-index-v1 — life-domain + principle facets
+
+- A fixed ~20-domain **taxonomy** (`TAXONOMY` in the CLI): money/provision, fear/anxiety, grief,
+  marriage/divorce, parenting, conflict/forgiveness, ambition/status, honesty, illness,
+  purpose/calling, enemies, doubt, prayer, wealth/generosity, judgment-of-others, work, power,
+  loneliness, temptation, death.
+- New `saying` facets `domains` + `principles` (+ `machine_tagged` flag) and on `Passage`. **Same
+  bright line as modern-legs:** machine tags are retrieval metadata only — never displayed
+  (`context_lines` uses `text_original`) or trained (SFT reads the xlsx). A wrong tag costs at most
+  a retrieval miss, never fabricated content.
+- Pipeline (mirrors modern-legs): `principle-tag` (plain LLM generation → `DOMAINS:`/`PRINCIPLE:`,
+  parsed leniently into the taxonomy) → sidecar `build/principle_tags.jsonl`; `apply-principle-tags`
+  loads facets into the store (no re-embed — facets don't change vectors). Parser unit-tested.
+
+## principle-tier — Tier-2 principle-bridging
+
+- No gate change needed: the orchestrator already has `set.passages[].principles`. On a
+  `LowConfidence` turn it `collect_principles(&set)` and, if any, assembles
+  `assemble_context_principle_tier` (the `PRINCIPLE_BRIDGING_HEAD` + the principles) instead of the
+  plain hedge — a per-turn context injection; **SYSTEM_PROMPT untouched**. The principles also ride
+  on the `x-jesus-twin/low-confidence` chunk for the honesty surface.
+- Falls back to the plain low-confidence hedge when no principles are tagged (so it's a safe no-op
+  until tagging runs). Prompt + orchestrator integration tests pin both paths.
+
+## Handoff — the full tagging run (GPU)
+
+```bash
+jesus-twin principle-tag ../build/rag_corpus.jsonl --out ../build/principle_tags.jsonl  # ~927 gens
+jesus-twin apply-principle-tags ../build/principle_tags.jsonl --db ./twin.db
+# then Tier-2 answers bridge via the tagged principles; re-run gate calibrate as regression.
+```
+
+## Deferred follow-up
+
+The plan's **theme-expansion retrieval boost** (embed question → nearest domain → boost
+domain-tagged passages as a 5th RRF leg) is not in this v1 — the facets + bridging land first;
+boosting recall via the domain leg is a contained follow-up. Human review later promotes tags
+(`machine_tagged = false`).

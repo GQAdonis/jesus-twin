@@ -36,6 +36,16 @@ pub struct Passage {
     pub move_: String,
     #[serde(default)]
     pub translation: String,
+    /// Life-domain tags (principle-index-v1) — machine-tagged retrieval facets (e.g.
+    /// `["fear/anxiety","provision"]`). NEVER displayed or trained: they steer retrieval and feed
+    /// Tier-2 principle-bridging. `context_lines` uses only `text_original`.
+    #[serde(default)]
+    pub domains: Vec<String>,
+    /// Governing principles this saying establishes — short statements, each derived from the
+    /// saying itself (never invented). Same facet rules as `domains`. Used by `principle-tier` to
+    /// bridge an adjacent question to the principle the cited passages establish.
+    #[serde(default)]
+    pub principles: Vec<String>,
     /// Fused retrieval score, populated by the query. `None` for stored records.
     #[serde(default)]
     pub score: Option<f32>,

@@ -156,3 +156,49 @@ async fn ingests_tanakh_as_separate_source_corpus() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+/// principle-index-v1: applied facets round-trip onto the retrieved `Passage` (the path
+/// principle-tier reads). A wrong tag costs a retrieval miss, never display/training content.
+#[tokio::test]
+async fn principle_facets_round_trip_onto_passage() {
+    use std::io::Write;
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+
+    let corpus = std::env::temp_dir().join(format!("pi-corpus-{}.jsonl", std::process::id()));
+    let tags = std::env::temp_dir().join(format!("pi-tags-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&corpus).expect("corpus");
+        writeln!(
+            f,
+            r#"{{"id":"wj-1","ref":"Matthew 6:25","text_original":"do not be anxious about your life","book_author":"Matthew"}}"#
+        )
+        .unwrap();
+        let mut g = std::fs::File::create(&tags).expect("tags");
+        writeln!(
+            g,
+            r#"{{"id":"wj-1","domains":["fear/anxiety"],"principles":["Trust the Father's provision over anxious striving."]}}"#
+        )
+        .unwrap();
+    }
+    store
+        .ingest_corpus(corpus.to_str().unwrap())
+        .await
+        .expect("ingest");
+    let tagged = store
+        .ingest_principle_tags(tags.to_str().unwrap())
+        .await
+        .expect("apply tags");
+    assert_eq!(tagged, 1);
+
+    let set = store.retrieve("anxious", 5).await.expect("retrieve");
+    let p = set.passages.first().expect("a passage");
+    assert_eq!(p.domains, vec!["fear/anxiety"]);
+    assert_eq!(
+        p.principles,
+        vec!["Trust the Father's provision over anxious striving."],
+        "principle facets must round-trip onto the Passage for Tier-2 bridging"
+    );
+
+    let _ = std::fs::remove_file(&corpus);
+    let _ = std::fs::remove_file(&tags);
+}
