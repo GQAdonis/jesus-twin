@@ -19,7 +19,7 @@ use surrealdb::types::SurrealValue;
 
 use crate::embed::Embed;
 use crate::ingest;
-use crate::retrieve::{Passage, RetrievalSet, SourcePassage};
+use crate::retrieve::{Memory, Passage, RetrievalSet, SourcePassage};
 use crate::schema;
 use crate::store::{Store, StoreError};
 
@@ -501,6 +501,80 @@ impl Store for SurrealStore {
             .bind(("limit", limit))
             .await?;
         Ok(res.take(0)?)
+    }
+
+    // --- episodic-memory: the `memory` table, scope-isolated; never touched by `retrieve`. ---
+
+    async fn record_memory(
+        &self,
+        scope: &str,
+        kind: &str,
+        text: &str,
+        importance: i64,
+        refs: &[String],
+    ) -> Result<String, StoreError> {
+        // CREATE the memory, then project its string id back. `<string> time::now()` stamps an
+        // ISO timestamp so `at` sorts chronologically.
+        let sql = "SELECT record::id(id) AS id FROM (
+            CREATE memory CONTENT {
+                scope: $scope, kind: $kind, text: $text,
+                importance: $importance, at: <string> time::now(), refs: $refs
+            }
+        );";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("scope", scope.to_string()))
+            .bind(("kind", kind.to_string()))
+            .bind(("text", text.to_string()))
+            .bind(("importance", importance))
+            .bind(("refs", refs.to_vec()))
+            .await?;
+        Ok(res
+            .take::<Vec<IdRow>>(0)?
+            .into_iter()
+            .next()
+            .map(|r| r.id)
+            .unwrap_or_default())
+    }
+
+    async fn retrieve_memories(
+        &self,
+        scope: &str,
+        limit: usize,
+    ) -> Result<Vec<Memory>, StoreError> {
+        // Most salient first (importance, then recency). Always filtered by scope — memories never
+        // cross relationships.
+        let sql = "SELECT record::id(id) AS id, kind, scope, text, importance, at, refs
+                   FROM memory WHERE scope = $scope
+                   ORDER BY importance DESC, at DESC LIMIT $limit;";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("scope", scope.to_string()))
+            .bind(("limit", limit))
+            .await?;
+        Ok(res.take(0)?)
+    }
+
+    async fn list_memories(&self, scope: &str) -> Result<Vec<Memory>, StoreError> {
+        let sql = "SELECT record::id(id) AS id, kind, scope, text, importance, at, refs
+                   FROM memory WHERE scope = $scope ORDER BY at DESC;";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("scope", scope.to_string()))
+            .await?;
+        Ok(res.take(0)?)
+    }
+
+    async fn delete_memory(&self, id: &str) -> Result<(), StoreError> {
+        self.db
+            .query("DELETE type::record('memory', $id);")
+            .bind(("id", id.to_string()))
+            .await?
+            .check()?;
+        Ok(())
     }
     // `mindmap` uses the trait's default (retrieve + project_topic) — no SurrealDB-specific
     // override needed; the move/parallels layer is reconstructed from each saying's `move`.

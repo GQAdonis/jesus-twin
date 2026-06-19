@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::mindmap::MindmapDelta;
-use crate::retrieve::{Passage, RetrievalSet};
+use crate::retrieve::{Memory, Passage, RetrievalSet};
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -58,6 +58,43 @@ pub trait Store: Send + Sync {
     async fn mindmap(&self, topic: &str, limit: usize) -> Result<MindmapDelta, StoreError> {
         let set = self.retrieve(topic, limit).await?;
         Ok(crate::mindmap::project_topic(topic, &set.passages))
+    }
+
+    // --- episodic-memory (the fourth surface) — facts about the USER, never about Jesus. ---
+    // Default no-ops so non-SurrealDB stores and test doubles opt in explicitly. These are the
+    // ONLY way to touch the `memory` table; `retrieve` never returns memories (isolation).
+
+    /// Record an episodic memory. `scope` keys the relationship (user id, else session id).
+    /// Returns the new memory id (empty for a no-op store).
+    async fn record_memory(
+        &self,
+        _scope: &str,
+        _kind: &str,
+        _text: &str,
+        _importance: i64,
+        _refs: &[String],
+    ) -> Result<String, StoreError> {
+        Ok(String::new())
+    }
+
+    /// The most salient memories for `scope` (importance, then recency), up to `limit`. Memories
+    /// NEVER cross scopes and NEVER appear in [`Store::retrieve`].
+    async fn retrieve_memories(
+        &self,
+        _scope: &str,
+        _limit: usize,
+    ) -> Result<Vec<Memory>, StoreError> {
+        Ok(Vec::new())
+    }
+
+    /// All memories for a `scope`, newest first — backs the human inspect/export control.
+    async fn list_memories(&self, _scope: &str) -> Result<Vec<Memory>, StoreError> {
+        Ok(Vec::new())
+    }
+
+    /// Delete one memory by id (human override; CLAUDE.md principle 15).
+    async fn delete_memory(&self, _id: &str) -> Result<(), StoreError> {
+        Ok(())
     }
 }
 

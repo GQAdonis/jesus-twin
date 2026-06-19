@@ -47,6 +47,26 @@ pub const LOW_CONFIDENCE_ADDENDUM: &str = "[These passages only partly touch wha
 Speak plainly to what they genuinely cover, and where they do not reach the question, say so \
 in your own voice rather than reaching beyond them.]";
 
+/// Assemble the episodic-memory block (episodic-memory): what the mentor remembers about THIS
+/// person from earlier conversations — facts about the user/relationship ONLY, never doctrine or a
+/// belief about the world. Injected per-turn before the grounding block (a context injection, NOT
+/// a SYSTEM_PROMPT edit). Empty memories → empty block.
+pub fn assemble_memory_block(memories: &[String]) -> String {
+    let items: Vec<String> = memories
+        .iter()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .map(|m| format!("- {m}"))
+        .collect();
+    if items.is_empty() {
+        return String::new();
+    }
+    format!(
+        "[What you remember about this person from earlier (facts about them, not new teaching):\n{}]",
+        items.join("\n")
+    )
+}
+
 /// Assemble retrieved passages into a single grounding block for the generation request.
 ///
 /// The block is the [`CONTEXT_INSTRUCTION`] line followed by the passages, so the model

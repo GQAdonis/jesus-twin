@@ -202,3 +202,88 @@ async fn principle_facets_round_trip_onto_passage() {
     let _ = std::fs::remove_file(&corpus);
     let _ = std::fs::remove_file(&tags);
 }
+
+/// episodic-memory: the fourth surface is ISOLATED (corpus retrieval never returns a memory) and
+/// SCOPED (memories never cross relationships); record returns an id; delete is a human override.
+#[tokio::test]
+async fn memory_is_isolated_and_scoped() {
+    use std::io::Write;
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+
+    let corpus = std::env::temp_dir().join(format!("mem-corpus-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&corpus).expect("corpus");
+        writeln!(
+            f,
+            r#"{{"id":"wj-1","ref":"Matthew 6:25","text_original":"do not be anxious about your life","book_author":"Matthew"}}"#
+        )
+        .unwrap();
+    }
+    store
+        .ingest_corpus(corpus.to_str().unwrap())
+        .await
+        .expect("ingest");
+
+    // Memories in two scopes; text deliberately shares the keyword "anxious" with the saying.
+    let id_a = store
+        .record_memory(
+            "user-A",
+            "observation",
+            "User A is anxious about money.",
+            7,
+            &["Matthew 6:25".into()],
+        )
+        .await
+        .expect("record A");
+    assert!(!id_a.is_empty(), "record returns the new id");
+    store
+        .record_memory(
+            "user-B",
+            "observation",
+            "User B is anxious about a job.",
+            5,
+            &[],
+        )
+        .await
+        .expect("record B");
+
+    // ISOLATION: corpus retrieval surfaces only sayings, never a memory.
+    let corpus_hits = store.retrieve("anxious", 10).await.expect("retrieve");
+    assert!(
+        corpus_hits
+            .passages
+            .iter()
+            .all(|p| p.ref_ == "Matthew 6:25"),
+        "corpus retrieve must never return memory records"
+    );
+
+    // SCOPE: each relationship sees only its own memories.
+    let a_mem = store
+        .retrieve_memories("user-A", 5)
+        .await
+        .expect("recall A");
+    assert_eq!(a_mem.len(), 1);
+    assert!(a_mem[0].text.contains("User A"));
+    let b_mem = store
+        .retrieve_memories("user-B", 5)
+        .await
+        .expect("recall B");
+    assert_eq!(b_mem.len(), 1);
+    assert!(
+        b_mem[0].text.contains("User B"),
+        "memories never cross relationships"
+    );
+
+    // Human override: delete removes it.
+    store.delete_memory(&id_a).await.expect("delete");
+    assert!(
+        store
+            .retrieve_memories("user-A", 5)
+            .await
+            .expect("recall A")
+            .is_empty(),
+        "deleted memory is gone"
+    );
+
+    let _ = std::fs::remove_file(&corpus);
+}

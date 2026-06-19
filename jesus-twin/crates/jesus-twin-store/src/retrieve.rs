@@ -99,6 +99,30 @@ impl RetrievalSet {
     }
 }
 
+/// One episodic memory — a fact about the **user and the relationship**, never about Jesus
+/// (episodic-memory; pre-planning 03). A distinct type and a distinct `memory` table, so corpus
+/// retrieval can never surface a memory as if it were scripture, and a memory can never be phrased
+/// as the mentor's belief about the world. `scope` isolates one relationship's memories.
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub struct Memory {
+    pub id: String,
+    /// `observation` | `reflection` | `preference`.
+    #[serde(default)]
+    pub kind: String,
+    /// The relationship key (user id, else session id) — every query is scoped to it.
+    #[serde(default)]
+    pub scope: String,
+    pub text: String,
+    #[serde(default)]
+    pub importance: i64,
+    /// ISO-8601 timestamp the store stamped at record time.
+    #[serde(default)]
+    pub at: String,
+    /// Citations from the reply this observation came from (provenance, not doctrine).
+    #[serde(default)]
+    pub refs: Vec<String>,
+}
+
 /// One retrieved Tanakh verse — **his source material, NOT his words** (hebrew-bible). A distinct
 /// type from [`Passage`] so the two corpora can never be conflated: adapters label these "source
 /// material" / "what he drew on", never as the twin's own teaching.

@@ -29,6 +29,9 @@ use crate::session::Session;
 /// How many passages to retrieve as grounding context per turn.
 const RETRIEVE_LIMIT: usize = 5;
 
+/// How many of the most-salient episodic memories to recall per turn (episodic-memory).
+const MEMORY_LIMIT: usize = 3;
+
 /// Errors the orchestrator can surface to an adapter.
 #[derive(Debug, Error)]
 pub enum OrchestratorError {
@@ -90,6 +93,20 @@ where
 
         let query = latest_user_message(session).ok_or(OrchestratorError::NoUserMessage)?;
 
+        // Episodic memory (the fourth surface): recall facts about THIS person, scoped to the
+        // relationship (user id, else this conversation). Non-fatal — a memory failure must never
+        // break the answer. Facts about the user only; injected as context, never SYSTEM_PROMPT.
+        let memory_scope = session.memory_scope();
+        let memory_block = {
+            let memories = self
+                .store
+                .retrieve_memories(&memory_scope, MEMORY_LIMIT)
+                .await
+                .unwrap_or_default();
+            let texts: Vec<String> = memories.into_iter().map(|m| m.text).collect();
+            prompt::assemble_memory_block(&texts)
+        };
+
         // 1. Retrieve (truth).
         let set = self
             .store
@@ -145,7 +162,7 @@ where
         // 4. Generate (voice), conditioned on the retrieved passages. On a low-confidence turn the
         // context carries the in-voice hedge (principle-bridging when principles exist) — a per-turn
         // injection; SYSTEM_PROMPT is untouched, preserving train/inference parity.
-        let context = if low_confidence {
+        let grounding = if low_confidence {
             if principles.is_empty() {
                 prompt::assemble_context_low_confidence(&context_lines(&set))
             } else {
@@ -153,6 +170,12 @@ where
             }
         } else {
             prompt::assemble_context(&context_lines(&set))
+        };
+        // The relationship memory (if any) precedes the grounding block in the turn context.
+        let context = if memory_block.is_empty() {
+            grounding
+        } else {
+            format!("{memory_block}\n\n{grounding}")
         };
         let message_id = Uuid::new_v4();
         events.push(AgentEvent::TextMessageStart {
@@ -173,6 +196,16 @@ where
             delta: text,
         });
         events.push(AgentEvent::TextMessageEnd { message_id });
+
+        // Post-turn: record an observation about THIS person (episodic-memory) — what they asked
+        // and the verses that grounded the reply. A fact about the user, not doctrine; scoped to
+        // the relationship. Non-fatal — recording must never break the turn.
+        let refs: Vec<String> = set.passages.iter().map(|p| p.ref_.clone()).collect();
+        let observation = format!("Asked: {query}");
+        let _ = self
+            .store
+            .record_memory(&memory_scope, "observation", &observation, 5, &refs)
+            .await;
 
         events.push(AgentEvent::RunFinished {
             run_id,

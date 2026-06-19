@@ -379,3 +379,39 @@ The plan's **theme-expansion retrieval boost** (embed question → nearest domai
 domain-tagged passages as a 5th RRF leg) is not in this v1 — the facets + bridging land first;
 boosting recall via the domain leg is a contained follow-up. Human review later promotes tags
 (`machine_tagged = false`).
+
+---
+
+# episodic-memory — the fourth surface (Wave 2, 2026-06-19)
+
+A relationship memory that records facts about the **user**, never about Jesus (pre-planning 03).
+The load-bearing invariant: **memory must never contaminate the other three surfaces** — a memory
+may say "user asked about anxiety on June 3"; it may never become new content about Jesus.
+
+## Isolation, structurally enforced
+
+- A separate `memory` SurrealDB table (kind / scope / text / importance / at / refs). Corpus
+  retrieval (`Store::retrieve`) only ever reads `saying`/`tanakh` — it is **structurally impossible**
+  for it to return a memory. The `memory_is_isolated_and_scoped` test pins this.
+- `scope` keys one relationship (`Session::memory_scope()` = user id if known, else session id).
+  Every memory read/write filters on it — **memories never cross relationships** (tested A vs B).
+- New `Store` methods (`record_memory` / `retrieve_memories` / `list_memories` / `delete_memory`)
+  with **default no-ops**, so only SurrealDB implements them and test doubles are unaffected.
+
+## Wiring
+
+- `Session` gains `user_id: Option<Uuid>` + `with_user()` (backward-compatible; `Session::new`
+  unchanged). Anonymous sessions scope memory to the single conversation.
+- Orchestrator: **pre-turn** it recalls the top-3 salient memories (importance, then recency) and
+  injects them as a `[What you remember about this person…]` block BEFORE the grounding block — a
+  per-turn context injection, **SYSTEM_PROMPT untouched**. **Post-turn** (non-refused) it records a
+  deterministic observation ("Asked: …" + the verses that grounded the reply). Both are **non-fatal**.
+- CLI `memory list <scope>` / `memory delete <id>` — the human inspect / override control
+  (CLAUDE.md principle 15).
+
+## v1 scope (deferred)
+
+Deterministic observations (the user's question + cited refs); **reflection synthesis** (LLM
+rollup across observations) and **relevance-ranked recall** (vector/BM25 over memory, vs. the
+current importance×recency) are documented follow-ups. The `preference` kind exists in the schema
+but is not yet auto-extracted.

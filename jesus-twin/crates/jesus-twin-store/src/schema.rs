@@ -67,6 +67,20 @@ DEFINE FIELD IF NOT EXISTS translation ON tanakh TYPE string DEFAULT "JPS 1917";
 DEFINE FIELD IF NOT EXISTS emb         ON tanakh TYPE option<array<float>>;
 DEFINE INDEX IF NOT EXISTS tanakh_ft  ON tanakh FIELDS text FULLTEXT ANALYZER twin_an BM25;
 DEFINE INDEX IF NOT EXISTS tanakh_vec ON tanakh FIELDS emb  HNSW DIMENSION 768 DIST COSINE;
+
+-- `memory` is the FOURTH surface (episodic-memory): facts about the USER and the relationship,
+-- never about Jesus. A separate table makes it structurally impossible for corpus retrieval to
+-- return a memory as if it were scripture. `scope` keys one relationship (user id, else session id)
+-- and every query filters on it — memories never cross relationships. `at` is an ISO string stamped
+-- by the store (`<string> time::now()`), so lexical ordering is chronological.
+DEFINE TABLE IF NOT EXISTS memory SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS scope      ON memory TYPE string;
+DEFINE FIELD IF NOT EXISTS kind       ON memory TYPE string DEFAULT "observation";
+DEFINE FIELD IF NOT EXISTS text       ON memory TYPE string;
+DEFINE FIELD IF NOT EXISTS importance ON memory TYPE int DEFAULT 5;
+DEFINE FIELD IF NOT EXISTS at         ON memory TYPE string DEFAULT "";
+DEFINE FIELD IF NOT EXISTS refs       ON memory TYPE array<string> DEFAULT [];
+DEFINE INDEX IF NOT EXISTS memory_ft ON memory FIELDS text FULLTEXT ANALYZER twin_an BM25;
 "#;
 
 /// Embedding dimension for the HNSW indexes. Must match the embedding model wired in

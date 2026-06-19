@@ -230,6 +230,29 @@ enum Command {
         #[arg(long, env = "JESUS_TWIN_DB")]
         db: Option<String>,
     },
+    /// Inspect or delete episodic memories (the human override over the fourth surface).
+    Memory {
+        #[command(subcommand)]
+        cmd: MemoryCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryCmd {
+    /// List memories for a scope (a user id, or a session id), newest first.
+    List {
+        /// The relationship scope key.
+        scope: String,
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Delete a memory by id.
+    Delete {
+        /// Memory id (from `memory list`).
+        id: String,
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -295,6 +318,12 @@ async fn main() -> anyhow::Result<()> {
         Command::ApplyPrincipleTags { jsonl, db } => {
             apply_principle_tags(&jsonl, db.as_deref()).await
         }
+        Command::Memory {
+            cmd: MemoryCmd::List { scope, db },
+        } => memory_list(&scope, db.as_deref()).await,
+        Command::Memory {
+            cmd: MemoryCmd::Delete { id, db },
+        } => memory_delete(&id, db.as_deref()).await,
         Command::Chat => {
             // TODO(build step 3+): drive the orchestrator interactively.
             anyhow::bail!("chat REPL not yet implemented");
@@ -868,6 +897,32 @@ async fn apply_principle_tags(jsonl: &str, db: Option<&str>) -> anyhow::Result<(
     drop(store);
     tokio::task::yield_now().await;
     println!("tagged {count} sayings with life-domain + principle facets");
+    Ok(())
+}
+
+/// List episodic memories for a scope (newest first) — the human inspect/export control.
+async fn memory_list(scope: &str, db: Option<&str>) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let memories = store.list_memories(scope).await?;
+    if memories.is_empty() {
+        println!("no memories for scope \"{scope}\".");
+        return Ok(());
+    }
+    println!("memories for \"{scope}\" (newest first):");
+    for m in &memories {
+        println!(
+            "  [{}] {} ({}, importance {}) {}",
+            m.id, m.at, m.kind, m.importance, m.text
+        );
+    }
+    Ok(())
+}
+
+/// Delete one episodic memory by id (human override; CLAUDE.md principle 15).
+async fn memory_delete(id: &str, db: Option<&str>) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    store.delete_memory(id).await?;
+    println!("deleted memory {id}");
     Ok(())
 }
 
