@@ -287,3 +287,56 @@ async fn memory_is_isolated_and_scoped() {
 
     let _ = std::fs::remove_file(&corpus);
 }
+
+/// gospel-context-kb: the Gospel narrative loads into its OWN table and retrieves with its
+/// attestation flag, labeled as deeds — and must NOT leak into the red-letter `saying` retrieval.
+#[tokio::test]
+async fn ingests_gospel_narrative_as_separate_corpus() {
+    use std::io::Write;
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+    let path = std::env::temp_dir().join(format!("gn-test-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&path).expect("temp jsonl");
+        writeln!(
+            f,
+            r#"{{"ref":"Mark 1:41","text":"Being moved with compassion, he stretched out his hand and touched him.","book":"Mark","attestation":"single","witnesses":["Mark"]}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ref":"Matthew 4:1","text":"Then Jesus was led up by the Spirit into the wilderness to be tempted.","book":"Matthew","attestation":"single","witnesses":["Matthew"]}}"#
+        )
+        .unwrap();
+    }
+    let n = store
+        .ingest_gospel_narrative(path.to_str().unwrap())
+        .await
+        .expect("ingest narrative");
+    assert_eq!(n, 2);
+
+    let hits = store
+        .retrieve_gospel_narrative("stretched out his hand", 5)
+        .await
+        .expect("retrieve narrative");
+    assert!(
+        hits.iter().any(|p| p.ref_ == "Mark 1:41"),
+        "BM25 should surface the deed, got {:?}",
+        hits.iter().map(|p| &p.ref_).collect::<Vec<_>>()
+    );
+    assert!(
+        hits.iter().all(|p| !p.attestation.is_empty()),
+        "every narrative result carries an attestation flag"
+    );
+
+    // Separation: the red-letter `saying` retrieval must not return narrative passages.
+    let saying_hits = store
+        .retrieve("stretched", 5)
+        .await
+        .expect("retrieve saying");
+    assert!(
+        saying_hits.passages.is_empty(),
+        "gospel narrative must not leak into the red-letter saying corpus"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}

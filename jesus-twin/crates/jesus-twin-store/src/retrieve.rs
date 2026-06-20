@@ -143,3 +143,25 @@ pub struct SourcePassage {
     #[serde(default)]
     pub score: Option<f32>,
 }
+
+/// One retrieved Gospel-narrative passage — **what the record shows he DID, not his words**
+/// (gospel-context-kb). A distinct type so "example by deed" can never be rendered as his teaching.
+/// `attestation` (`single`|`multiply`) + `witnesses` flag how broadly the record attests it.
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub struct NarrativePassage {
+    #[serde(rename = "ref")]
+    #[surreal(rename = "ref")]
+    pub ref_: String,
+    pub text: String,
+    #[serde(default)]
+    pub book: String,
+    /// `single` | `multiply` — how many Gospels attest it (mechanical attestation is a follow-up;
+    /// defaults to `single`).
+    #[serde(default)]
+    pub attestation: String,
+    #[serde(default)]
+    pub witnesses: Vec<String>,
+    /// Fused retrieval score, populated by the query. `None` for stored records.
+    #[serde(default)]
+    pub score: Option<f32>,
+}

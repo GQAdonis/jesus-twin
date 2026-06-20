@@ -207,6 +207,27 @@ enum Command {
         #[arg(long, default_value_t = 5)]
         limit: usize,
     },
+    /// Ingest the Gospel narrative (his deeds/context) into the separate `gospel_narrative` table
+    /// and embed it. Produce the JSONL with `python extract_gospel_narrative.py`.
+    IngestGospelNarrative {
+        /// Narrative JSONL produced by `extract_gospel_narrative.py`.
+        #[arg(default_value = "../build/gospel_narrative.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested with the red-letter corpus.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Retrieve Gospel-narrative passages — labeled as WHAT THE RECORD SHOWS HE DID, not his words.
+    RetrieveGospelNarrative {
+        /// The query text.
+        query: String,
+        /// Store directory; must have an ingested `gospel_narrative` table.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+        /// Max passages to return.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
     /// Machine-tag every saying with life-domain + principle facets into a sidecar
     /// (principle-index-v1). Retrieval-metadata only — never displayed or trained. Requires
     /// `--features mistralrs`. Use `--limit` to sample.
@@ -313,6 +334,12 @@ async fn main() -> anyhow::Result<()> {
         Command::IngestTanakh { jsonl, db } => ingest_tanakh(&jsonl, db.as_deref()).await,
         Command::RetrieveTanakh { query, db, limit } => {
             retrieve_tanakh(&query, db.as_deref(), limit).await
+        }
+        Command::IngestGospelNarrative { jsonl, db } => {
+            ingest_gospel_narrative(&jsonl, db.as_deref()).await
+        }
+        Command::RetrieveGospelNarrative { query, db, limit } => {
+            retrieve_gospel_narrative(&query, db.as_deref(), limit).await
         }
         Command::PrincipleTag { jsonl, out, limit } => principle_tag(&jsonl, &out, limit).await,
         Command::ApplyPrincipleTags { jsonl, db } => {
@@ -897,6 +924,46 @@ async fn apply_principle_tags(jsonl: &str, db: Option<&str>) -> anyhow::Result<(
     drop(store);
     tokio::task::yield_now().await;
     println!("tagged {count} sayings with life-domain + principle facets");
+    Ok(())
+}
+
+/// Ingest the Gospel-narrative JSONL (his deeds/context) into the `gospel_narrative` table +
+/// embed it. Builds the engine (under the feature) so the embedder populates `emb`.
+async fn ingest_gospel_narrative(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = open_store(db).await?;
+
+    let count = store.ingest_gospel_narrative(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("ingested {count} Gospel-narrative passages (what the record shows he did)");
+    Ok(())
+}
+
+/// Retrieve Gospel-narrative passages, labeled distinctly with their attestation. BM25-only here.
+async fn retrieve_gospel_narrative(
+    query: &str,
+    db: Option<&str>,
+    limit: usize,
+) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let hits = store.retrieve_gospel_narrative(query, limit).await?;
+    if hits.is_empty() {
+        println!("no Gospel-narrative matches \"{query}\".");
+        return Ok(());
+    }
+    println!("What the record shows he DID (Gospel narrative, WEB); NOT his own words:");
+    for p in &hits {
+        let score = p.score.unwrap_or(0.0);
+        println!("  [{score:.3}] {} ({}) {}", p.ref_, p.attestation, p.text);
+    }
     Ok(())
 }
 

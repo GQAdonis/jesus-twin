@@ -415,3 +415,52 @@ Deterministic observations (the user's question + cited refs); **reflection synt
 rollup across observations) and **relevance-ranked recall** (vector/BM25 over memory, vs. the
 current importance×recency) are documented follow-ups. The `preference` kind exists in the schema
 but is not yet auto-extracted.
+
+---
+
+# gospel-context-kb — the third labeled corpus: what he DID (Wave 2, 2026-06-20)
+
+The non-red-letter Gospel narrative — his deeds, settings, and the dialogue around the sayings —
+as a **third labeled corpus**: "what the record shows he did," never his words (the red-letter
+`saying` corpus). Gives Tier-2 answers access to *example by deed* with the same citation discipline.
+
+## Source — the complement of the red-letter extractor
+
+`extract_gospel_narrative.py` reuses the WEB USFX (eBible.org, public domain) the red-letter
+extractor downloads, but keeps the **complement**: each Gospel verse's text with the `<wj>` (his
+words) spans AND the editorial apparatus (`<f>` footnotes, `<x>` cross-refs) removed. A verse is
+emitted only when its remaining narrative text is substantial (≥25 chars), so a bare speech tag
+("He said to them,") is dropped while a deed ("Being moved with compassion, he stretched out his
+hand and touched him") is kept. Verified: **2,182 clean narrative passages** across the four
+Gospels; footnotes gone, no his-words leak, pure sayings (e.g. Mark 1:17) correctly absent.
+
+## Store — a separate `gospel_narrative` table
+
+- Schema mirrors `tanakh` (ref/text/book + BM25 + HNSW), plus `attestation` + `witnesses`.
+- `NarrativePassage` is a distinct type — adapters/CLI label results "what the record shows he
+  did… NOT his own words." `SurrealStore::ingest_gospel_narrative` / `retrieve_gospel_narrative`
+  (BM25 + vector RRF, via the generic `rank_table_*` helpers). CLI `ingest-gospel-narrative` /
+  `retrieve-gospel-narrative`. Test `ingests_gospel_narrative_as_separate_corpus` pins the load +
+  the separation invariant (narrative must not leak into red-letter retrieval).
+- Verified on the full 2,182-passage extraction (CPU/BM25): "touched the leper and healed" →
+  Luke 22:51 / Luke 6:19 / Mark 3:10 (healing deeds), labeled + attestation-flagged.
+
+## Honest deferral — automated attestation v1 is BLOCKED
+
+The plan's "multiply-vs-single attestation computed mechanically from synoptic-parallel counts"
+**cannot be done yet**: the corpus has **no synoptic-parallel data** (the `parallels` graph is
+unpopulated — ingest.rs has always noted this). So `attestation` defaults to `single`; computing
+true multiply-attestation needs a synoptic-parallel mapping (pericope alignment across the
+Gospels), which is its own data task. Documented as the follow-up; the corpus + retrieval + label
+land now, attestation-flagged and ready to populate.
+
+## Handoff — the full run (network + GPU)
+
+```bash
+python extract_gospel_narrative.py --out build/gospel_narrative.jsonl   # ~2.2k passages (network)
+jesus-twin ingest-gospel-narrative ../build/gospel_narrative.jsonl --db ./twin.db   # load + embed (GPU)
+jesus-twin retrieve-gospel-narrative "he wept at the tomb" --db ./twin.db
+```
+Orchestrator wiring (surfacing a labeled "what the record shows he did" block in `ask`/`serve`
+answers) is the same follow-up flagged for hebrew-bible — the store + retrieval primitives are in
+place.

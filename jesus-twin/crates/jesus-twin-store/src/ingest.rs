@@ -344,3 +344,96 @@ pub async fn apply_principle_tags(db: &Surreal<Db>, jsonl_path: &str) -> Result<
     );
     Ok(tagged)
 }
+
+/// One line of `build/gospel_narrative.jsonl` (produced by `extract_gospel_narrative.py`).
+#[derive(Debug, Deserialize)]
+struct NarrativeRecord {
+    #[serde(rename = "ref")]
+    ref_: String,
+    text: String,
+    #[serde(default)]
+    book: String,
+    #[serde(default)]
+    attestation: String,
+    #[serde(default)]
+    witnesses: Vec<String>,
+}
+
+/// Load the Gospel-narrative JSONL into the `gospel_narrative` table — a SEPARATE corpus
+/// (gospel-context-kb: what the record shows he DID, never his words). Upserts by `ref`
+/// (idempotent). Returns the number of passages loaded.
+pub async fn ingest_gospel_narrative(
+    db: &Surreal<Db>,
+    jsonl_path: &str,
+) -> Result<usize, StoreError> {
+    let file = std::fs::File::open(jsonl_path).map_err(|source| StoreError::Io {
+        path: jsonl_path.to_string(),
+        source,
+    })?;
+    let mut total = 0usize;
+    for (idx, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|source| StoreError::Io {
+            path: jsonl_path.to_string(),
+            source,
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let rec: NarrativeRecord =
+            serde_json::from_str(&line).map_err(|source| StoreError::Parse {
+                line: idx + 1,
+                source,
+            })?;
+        let attestation = if rec.attestation.is_empty() {
+            "single".to_string()
+        } else {
+            rec.attestation
+        };
+        let sql = "UPSERT type::record('gospel_narrative', $ref) CONTENT {
+            ref: $ref, text: $text, book: $book, attestation: $attestation, witnesses: $witnesses
+        };";
+        db.query(sql)
+            .bind(("ref", rec.ref_))
+            .bind(("text", rec.text))
+            .bind(("book", rec.book))
+            .bind(("attestation", attestation))
+            .bind(("witnesses", rec.witnesses))
+            .await?
+            .check()?;
+        total += 1;
+    }
+    tracing::info!(
+        count = total,
+        path = jsonl_path,
+        "ingested gospel narrative corpus"
+    );
+    Ok(total)
+}
+
+/// Embed every Gospel-narrative passage's text into `emb`, populating the HNSW index. Idempotent.
+pub async fn embed_gospel_narrative(
+    db: &Surreal<Db>,
+    embedder: &dyn Embed,
+) -> Result<(), StoreError> {
+    let mut res = db
+        .query("SELECT record::id(id) AS id, text FROM gospel_narrative;")
+        .await?;
+    let rows: Vec<TanakhEmbedRow> = res.take(0)?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let texts: Vec<String> = rows.iter().map(|r| r.text.clone()).collect();
+    let vecs = embedder.embed(&texts).await?;
+    for (row, emb) in rows.iter().zip(vecs) {
+        db.query("UPDATE type::record('gospel_narrative', $id) SET emb = $emb;")
+            .bind(("id", row.id.clone()))
+            .bind(("emb", emb))
+            .await?
+            .check()?;
+    }
+    tracing::info!(
+        count = rows.len(),
+        "embedded gospel narrative for vector retrieval"
+    );
+    Ok(())
+}

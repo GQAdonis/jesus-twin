@@ -68,6 +68,21 @@ DEFINE FIELD IF NOT EXISTS emb         ON tanakh TYPE option<array<float>>;
 DEFINE INDEX IF NOT EXISTS tanakh_ft  ON tanakh FIELDS text FULLTEXT ANALYZER twin_an BM25;
 DEFINE INDEX IF NOT EXISTS tanakh_vec ON tanakh FIELDS emb  HNSW DIMENSION 768 DIST COSINE;
 
+-- `gospel_narrative` is a THIRD labeled corpus (gospel-context-kb): the NON-red-letter Gospel
+-- narrative (his deeds, settings, the dialogue around the sayings) — "what the record shows he
+-- did," never his words. Attestation-flagged (`attestation` single|multiply, `witnesses`); the
+-- automated multiply-vs-single computation needs synoptic-parallel data (a documented follow-up),
+-- so it defaults to single for now. Same one-register BM25 + HNSW shape as `tanakh`.
+DEFINE TABLE IF NOT EXISTS gospel_narrative SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS ref         ON gospel_narrative TYPE string;
+DEFINE FIELD IF NOT EXISTS text        ON gospel_narrative TYPE string;
+DEFINE FIELD IF NOT EXISTS book        ON gospel_narrative TYPE string DEFAULT "";
+DEFINE FIELD IF NOT EXISTS attestation ON gospel_narrative TYPE string DEFAULT "single";
+DEFINE FIELD IF NOT EXISTS witnesses   ON gospel_narrative TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS emb         ON gospel_narrative TYPE option<array<float>>;
+DEFINE INDEX IF NOT EXISTS gospel_ft  ON gospel_narrative FIELDS text FULLTEXT ANALYZER twin_an BM25;
+DEFINE INDEX IF NOT EXISTS gospel_vec ON gospel_narrative FIELDS emb  HNSW DIMENSION 768 DIST COSINE;
+
 -- `memory` is the FOURTH surface (episodic-memory): facts about the USER and the relationship,
 -- never about Jesus. A separate table makes it structurally impossible for corpus retrieval to
 -- return a memory as if it were scripture. `scope` keys one relationship (user id, else session id)
