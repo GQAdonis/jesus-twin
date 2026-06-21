@@ -21,6 +21,7 @@
     "gospel-context-kb": "DONE-committed-3ba59e7-2182-passages-verified-attestation-deferred",
     "episodic-memory": "DONE-committed-c7b3478-isolated-fourth-surface",
     "wave-3-handoff": "DONE-docs-HANDOFF-wave3.md",
+    "orchestrator-source-narrative-blocks": "DONE-tanakh+gospel-narrative-as-distinct-labeled-context-blocks+AG-UI-chunks-also-fixed-Arc-trait-default-no-op-bug",
     "train-lora-prep": "DONE-gentle-recipe-defaults-lr2e-5-ep1-cli-flags-dead-SYSTEM_PROMPT-removed",
     "annotation-300": "wave-3-human",
     "retrain-dual-base": "wave-3-ready-script-gated-on-human-rows",

@@ -67,6 +67,43 @@ pub fn assemble_memory_block(memories: &[String]) -> String {
     )
 }
 
+/// Provenance label for the Tanakh **source-material** block (hebrew-bible). These are the Hebrew
+/// scriptures the mentor DREW ON — what he read and reasoned from — **not his own words**. The
+/// label is load-bearing: it keeps "his source material" distinct from "his teaching", so a quoted
+/// scripture is never rendered as one of his sayings (the bright line). Placed before the grounding
+/// block, which stays at the high-attention end-of-prompt position.
+pub const SOURCE_INSTRUCTION: &str = "[For reference, passages from the Hebrew scriptures you drew \
+on — your source material, what you read and reasoned from, not your own teaching. You may cite or \
+build on them as yourself, but keep them distinct from your own words.]";
+
+/// Assemble Tanakh source-material lines into a labeled block (hebrew-bible). Empty input → empty
+/// block (no label without source to govern). The caller passes `ref: text` lines from
+/// [`jesus_twin_store::SourcePassage`]s, never the red-letter corpus.
+pub fn assemble_source_block(passages: &[String]) -> String {
+    if passages.is_empty() {
+        return String::new();
+    }
+    format!("{SOURCE_INSTRUCTION}\n{}", passages.join("\n"))
+}
+
+/// Provenance label for the Gospel-**narrative** block (gospel-context-kb). These are what the
+/// record shows the mentor DID — his deeds and the situations around them, as others recorded them
+/// — **not his words**. The label keeps "what he did" distinct from "what he said", so a narrator's
+/// description is never spoken as one of his sayings.
+pub const NARRATIVE_INSTRUCTION: &str = "[For context, what the record shows you did in moments like \
+this — your actions and the situations around them, as others recorded them. These are deeds, not \
+your words; let them inform how you respond, but never speak a narrator's description as your own \
+teaching.]";
+
+/// Assemble Gospel-narrative lines into a labeled block (gospel-context-kb). Empty input → empty
+/// block. The caller passes `ref: text` lines from [`jesus_twin_store::NarrativePassage`]s.
+pub fn assemble_narrative_block(passages: &[String]) -> String {
+    if passages.is_empty() {
+        return String::new();
+    }
+    format!("{NARRATIVE_INSTRUCTION}\n{}", passages.join("\n"))
+}
+
 /// Assemble retrieved passages into a single grounding block for the generation request.
 ///
 /// The block is the [`CONTEXT_INSTRUCTION`] line followed by the passages, so the model

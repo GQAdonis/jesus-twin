@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 files.zip
 
+# Secrets / local env (e.g. the HF token) — never commit
+.env
+.env.*
+
 # Office temp/lock files
 ~$*
 

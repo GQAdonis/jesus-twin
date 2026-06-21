@@ -99,9 +99,11 @@ the two screenshots + a Tier-2 answer screenshot showing the transparent frame.
    judge so "what's the date the world ends" actually refuses.
 3. **Theme-expansion retrieval boost** (principle-index-v1 deferral): embed question → nearest
    domain → boost domain-tagged passages as a 5th RRF leg.
-4. **Orchestrator source/narrative blocks.** The store has `retrieve_tanakh` /
-   `retrieve_gospel_narrative`; wire them into `ask`/`serve` as distinct, labeled context blocks
-   (+ AG-UI chunks), so answers can cite "his source material" / "what the record shows he did."
+4. ~~**Orchestrator source/narrative blocks.**~~ **DONE** — the orchestrator now retrieves Tanakh +
+   Gospel narrative each turn and injects them as distinct, labeled context blocks
+   (`x-jesus-twin/source-text` + `x-jesus-twin/narrative-context` chunks). See `docs/FINDINGS.md`
+   "Orchestrator wiring — the two source/narrative blocks are now live" (also fixed the latent
+   `Arc<SurrealStore>` trait-default no-op that was silently disabling episodic-memory in `serve`).
 5. **Memory v2** (episodic-memory deferrals): reflection synthesis, relevance-ranked recall,
    preference auto-extraction.
 

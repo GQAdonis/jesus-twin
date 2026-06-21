@@ -464,3 +464,40 @@ jesus-twin retrieve-gospel-narrative "he wept at the tomb" --db ./twin.db
 Orchestrator wiring (surfacing a labeled "what the record shows he did" block in `ask`/`serve`
 answers) is the same follow-up flagged for hebrew-bible — the store + retrieval primitives are in
 place.
+
+# Orchestrator wiring — the two source/narrative blocks are now live
+
+The hebrew-bible and gospel-context-kb deferrals above ("surface a labeled block in the answer")
+are **closed**. Each turn now retrieves, with the same user query, two SUPPLEMENTARY labeled
+corpora alongside the red-letter `set` and injects them as DISTINCT context blocks:
+
+- **His source material** (Tanakh) → `prompt::SOURCE_INSTRUCTION` block ("the Hebrew scriptures you
+  drew on … not your own teaching") + an additive `x-jesus-twin/source-text` AG-UI chunk
+  (ref/text/category).
+- **His deeds** (Gospel narrative) → `prompt::NARRATIVE_INSTRUCTION` block ("what the record shows
+  you did … deeds, not your words") + an `x-jesus-twin/narrative-context` chunk
+  (ref/text/attestation/witnesses).
+
+Context order is ascending attention: memory → source → narrative → **grounding (his own words)
+last**, the high-attention end-of-prompt position. `SUPP_LIMIT = 2` each, so they contextualize
+the answer without ever dominating the red-letter truth the model paraphrases. Retrieval is
+non-fatal (`unwrap_or_default`, like memory recall) and happens after the coverage gate, so a
+refused turn does no extra work.
+
+## The bug this surfaced — `Arc<SurrealStore>` silently no-op'd the trait defaults
+
+The served orchestrator holds the store behind an `Arc`. The blanket `impl<S: Store> Store for
+Arc<S>` only forwarded four methods; every method with a default impl (the memory quartet, and now
+the two `retrieve_*` corpora) fell through to the **default no-op** instead of the inner store.
+That means **episodic-memory was already a silent no-op through `Arc` in the served path** (the
+direct-`SurrealStore` tests passed, hiding it). Fixed by forwarding all of them through `Arc`. The
+two corpus retrievers were also promoted from inherent methods to `Store` trait methods so they
+forward at all (the orchestrator is generic over `S: Store`).
+
+## Verification
+
+`source_and_narrative_corpora_wire_as_distinct_labeled_blocks` (a capturing engine records the
+generation context) asserts: both AG-UI chunks emit with their distinguishing facets; both labeled
+blocks reach the context; the red-letter grounding block is still present; and grounding sits AFTER
+source + narrative. Full `jesus-twin-core` suite (10 unit + 6 integration) green; `jesus-twin-store`
+(7) green; `cargo clippy --workspace` clean.

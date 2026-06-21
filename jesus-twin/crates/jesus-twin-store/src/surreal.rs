@@ -106,35 +106,6 @@ impl SurrealStore {
         Ok(count)
     }
 
-    /// Retrieve Tanakh verses (HIS SOURCE MATERIAL — never his words) for `query`: BM25 + (when an
-    /// embedder is attached) HNSW vector, fused by RRF. Results are [`SourcePassage`]s so callers
-    /// always label them distinctly from the red-letter corpus.
-    pub async fn retrieve_tanakh(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<SourcePassage>, StoreError> {
-        const CANDIDATES: usize = 20;
-        const K: f32 = 60.0;
-        let q = crate::stopwords::strip(query);
-        if q.is_empty() {
-            return Ok(Vec::new());
-        }
-        let ft = self.rank_tanakh_bm25(&q, CANDIDATES).await?;
-        let fused = match &self.embedder {
-            Some(embedder) => {
-                let emb = embedder.embed_query(query).await?;
-                let v = self.rank_tanakh_vector(&emb, CANDIDATES).await?;
-                rrf_fuse(&[ft, v], K, limit)
-            }
-            None => rrf_fuse(&[ft], K, limit),
-        };
-        if fused.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.fetch_tanakh(&fused).await
-    }
-
     /// BM25 leg over `tanakh.text`: ranked verse refs (the record ids) for `q`.
     async fn rank_tanakh_bm25(&self, q: &str, limit: usize) -> Result<Vec<String>, StoreError> {
         let sql = "SELECT record::id(id) AS id, search::score(0) AS s FROM tanakh
@@ -201,56 +172,6 @@ impl SurrealStore {
             ),
         }
         Ok(count)
-    }
-
-    /// Retrieve Gospel-narrative passages (HIS DEEDS / CONTEXT — never his words) for `query`:
-    /// BM25 + (when an embedder is attached) HNSW vector, fused by RRF. [`NarrativePassage`]s carry
-    /// the attestation flag so callers label them distinctly from the red-letter corpus.
-    pub async fn retrieve_gospel_narrative(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<NarrativePassage>, StoreError> {
-        const CANDIDATES: usize = 20;
-        const K: f32 = 60.0;
-        let q = crate::stopwords::strip(query);
-        if q.is_empty() {
-            return Ok(Vec::new());
-        }
-        let ft = self
-            .rank_table_bm25("gospel_narrative", &q, CANDIDATES)
-            .await?;
-        let fused = match &self.embedder {
-            Some(embedder) => {
-                let emb = embedder.embed_query(query).await?;
-                let v = self
-                    .rank_table_vector("gospel_narrative", &emb, CANDIDATES)
-                    .await?;
-                rrf_fuse(&[ft, v], K, limit)
-            }
-            None => rrf_fuse(&[ft], K, limit),
-        };
-        if fused.is_empty() {
-            return Ok(Vec::new());
-        }
-        let id_list: Vec<String> = fused.iter().map(|(id, _)| id.clone()).collect();
-        let sql = "SELECT ref, text, book, attestation, witnesses FROM gospel_narrative
-                   WHERE record::id(id) IN $ids;";
-        let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
-        let mut by_ref: std::collections::HashMap<String, NarrativePassage> = res
-            .take::<Vec<NarrativePassage>>(0)?
-            .into_iter()
-            .map(|p| (p.ref_.clone(), p))
-            .collect();
-        Ok(fused
-            .iter()
-            .filter_map(|(id, score)| {
-                by_ref.remove(id).map(|mut p| {
-                    p.score = Some(*score);
-                    p
-                })
-            })
-            .collect())
     }
 
     /// One BM25 leg over `<table>.text`: ranked record ids for `q`. (Generic over the
@@ -546,6 +467,87 @@ impl SurrealStore {
 
 #[async_trait::async_trait]
 impl Store for SurrealStore {
+    /// Retrieve Tanakh verses (HIS SOURCE MATERIAL — never his words) for `query`: BM25 + (when an
+    /// embedder is attached) HNSW vector, fused by RRF. Results are [`SourcePassage`]s so callers
+    /// always label them distinctly from the red-letter corpus. A trait method (not inherent) so it
+    /// forwards through `Arc<SurrealStore>` — the served orchestrator holds the store behind an Arc.
+    async fn retrieve_tanakh(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SourcePassage>, StoreError> {
+        const CANDIDATES: usize = 20;
+        const K: f32 = 60.0;
+        let q = crate::stopwords::strip(query);
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ft = self.rank_tanakh_bm25(&q, CANDIDATES).await?;
+        let fused = match &self.embedder {
+            Some(embedder) => {
+                let emb = embedder.embed_query(query).await?;
+                let v = self.rank_tanakh_vector(&emb, CANDIDATES).await?;
+                rrf_fuse(&[ft, v], K, limit)
+            }
+            None => rrf_fuse(&[ft], K, limit),
+        };
+        if fused.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.fetch_tanakh(&fused).await
+    }
+
+    /// Retrieve Gospel-narrative passages (HIS DEEDS / CONTEXT — never his words) for `query`:
+    /// BM25 + (when an embedder is attached) HNSW vector, fused by RRF. [`NarrativePassage`]s carry
+    /// the attestation flag so callers label them distinctly from the red-letter corpus. A trait
+    /// method (not inherent) so it forwards through `Arc<SurrealStore>` (see `retrieve_tanakh`).
+    async fn retrieve_gospel_narrative(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<NarrativePassage>, StoreError> {
+        const CANDIDATES: usize = 20;
+        const K: f32 = 60.0;
+        let q = crate::stopwords::strip(query);
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ft = self
+            .rank_table_bm25("gospel_narrative", &q, CANDIDATES)
+            .await?;
+        let fused = match &self.embedder {
+            Some(embedder) => {
+                let emb = embedder.embed_query(query).await?;
+                let v = self
+                    .rank_table_vector("gospel_narrative", &emb, CANDIDATES)
+                    .await?;
+                rrf_fuse(&[ft, v], K, limit)
+            }
+            None => rrf_fuse(&[ft], K, limit),
+        };
+        if fused.is_empty() {
+            return Ok(Vec::new());
+        }
+        let id_list: Vec<String> = fused.iter().map(|(id, _)| id.clone()).collect();
+        let sql = "SELECT ref, text, book, attestation, witnesses FROM gospel_narrative
+                   WHERE record::id(id) IN $ids;";
+        let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
+        let mut by_ref: std::collections::HashMap<String, NarrativePassage> = res
+            .take::<Vec<NarrativePassage>>(0)?
+            .into_iter()
+            .map(|p| (p.ref_.clone(), p))
+            .collect();
+        Ok(fused
+            .iter()
+            .filter_map(|(id, score)| {
+                by_ref.remove(id).map(|mut p| {
+                    p.score = Some(*score);
+                    p
+                })
+            })
+            .collect())
+    }
+
     async fn retrieve(&self, query: &str, limit: usize) -> Result<RetrievalSet, StoreError> {
         // Strip stop words first: retrieval uses OR semantics, so without this a question
         // like "what about cryptocurrency" would match on "what"/"about" and slip past the

@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use jesus_twin_admission::{Cost, Gatekeeper};
 use jesus_twin_inference::{Engine, GenRequest};
 use jesus_twin_skills::Registry;
-use jesus_twin_store::{RetrievalSet, Store};
+use jesus_twin_store::{NarrativePassage, RetrievalSet, SourcePassage, Store};
 
 use crate::agent::{Agent, AgentError, AgentErrorKind};
 use crate::event::{AgentEvent, FinishReason, RefusalReason, Role};
@@ -31,6 +31,11 @@ const RETRIEVE_LIMIT: usize = 5;
 
 /// How many of the most-salient episodic memories to recall per turn (episodic-memory).
 const MEMORY_LIMIT: usize = 3;
+
+/// How many passages to pull from each SUPPLEMENTARY labeled corpus per turn — his source material
+/// (Tanakh) and his deeds (Gospel narrative). Kept small: they contextualize the grounded answer,
+/// they never dominate it (the red-letter `set` is the truth the model paraphrases).
+const SUPP_LIMIT: usize = 2;
 
 /// Errors the orchestrator can surface to an adapter.
 #[derive(Debug, Error)]
@@ -159,6 +164,46 @@ where
             });
         }
 
+        // 3b. The two SEPARATE labeled corpora, retrieved with the same query: his SOURCE MATERIAL
+        // (Tanakh — what he drew on) and his DEEDS (Gospel narrative — what the record shows he
+        // did). Injected as DISTINCT, labeled context blocks so the model can reference what he read
+        // and how he acted, while never rendering either as his own words (the bright line). Each is
+        // also surfaced as its own additive, namespaced AG-UI chunk. Non-fatal: a failure here must
+        // never break the grounded answer (mirrors the memory recall above).
+        let source_hits = self
+            .store
+            .retrieve_tanakh(query, SUPP_LIMIT)
+            .await
+            .unwrap_or_default();
+        let narrative_hits = self
+            .store
+            .retrieve_gospel_narrative(query, SUPP_LIMIT)
+            .await
+            .unwrap_or_default();
+        if !source_hits.is_empty() {
+            events.push(AgentEvent::Custom {
+                name: "x-jesus-twin/source-text".to_string(),
+                data: serde_json::json!({
+                    "passages": source_hits.iter().map(|p| serde_json::json!({
+                        "ref": p.ref_, "text": p.text, "category": p.category,
+                    })).collect::<Vec<_>>(),
+                }),
+            });
+        }
+        if !narrative_hits.is_empty() {
+            events.push(AgentEvent::Custom {
+                name: "x-jesus-twin/narrative-context".to_string(),
+                data: serde_json::json!({
+                    "passages": narrative_hits.iter().map(|p| serde_json::json!({
+                        "ref": p.ref_, "text": p.text,
+                        "attestation": p.attestation, "witnesses": p.witnesses,
+                    })).collect::<Vec<_>>(),
+                }),
+            });
+        }
+        let source_block = prompt::assemble_source_block(&source_lines(&source_hits));
+        let narrative_block = prompt::assemble_narrative_block(&narrative_lines(&narrative_hits));
+
         // 4. Generate (voice), conditioned on the retrieved passages. On a low-confidence turn the
         // context carries the in-voice hedge (principle-bridging when principles exist) — a per-turn
         // injection; SYSTEM_PROMPT is untouched, preserving train/inference parity.
@@ -171,12 +216,19 @@ where
         } else {
             prompt::assemble_context(&context_lines(&set))
         };
-        // The relationship memory (if any) precedes the grounding block in the turn context.
-        let context = if memory_block.is_empty() {
-            grounding
-        } else {
-            format!("{memory_block}\n\n{grounding}")
-        };
+        // Compose the turn context from the labeled blocks, in ascending attention order: memory
+        // (about the person), then his source material, then his deeds, then the grounding block
+        // (his own words) last — the high-attention end-of-prompt position. Empty blocks drop out.
+        let context = [
+            memory_block.as_str(),
+            source_block.as_str(),
+            narrative_block.as_str(),
+            grounding.as_str(),
+        ]
+        .into_iter()
+        .filter(|b| !b.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
         let message_id = Uuid::new_v4();
         events.push(AgentEvent::TextMessageStart {
             message_id,
@@ -258,6 +310,24 @@ fn context_lines(set: &RetrievalSet) -> Vec<String> {
     set.passages
         .iter()
         .map(|p| format!("{}: {}", p.ref_, p.text_original))
+        .collect()
+}
+
+/// Build the labeled context lines for the Tanakh SOURCE-MATERIAL block: `ref: text` per verse
+/// (hebrew-bible). Distinct from [`context_lines`] so his source material can never be conflated
+/// with his own words — the block carries its own provenance label.
+fn source_lines(hits: &[SourcePassage]) -> Vec<String> {
+    hits.iter()
+        .map(|p| format!("{}: {}", p.ref_, p.text))
+        .collect()
+}
+
+/// Build the labeled context lines for the Gospel-NARRATIVE block: `ref: text` per passage
+/// (gospel-context-kb). Deeds, never words — the block carries its own provenance label, and the
+/// attestation flag rides on the AG-UI chunk rather than the model context.
+fn narrative_lines(hits: &[NarrativePassage]) -> Vec<String> {
+    hits.iter()
+        .map(|p| format!("{}: {}", p.ref_, p.text))
         .collect()
 }
 
