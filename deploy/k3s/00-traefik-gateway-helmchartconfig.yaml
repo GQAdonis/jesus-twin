@@ -1,0 +1,30 @@
+# Enable Traefik's Gateway API provider on k3s's bundled Traefik.
+#
+# k3s ships Traefik and manages it via this HelmChartConfig CRD. We turn on the `kubernetesGateway`
+# provider (Traefik v3 is a conformant Gateway API controller) and DISABLE the chart's auto-created
+# shared Gateway, so we can define our own per-app Gateway with the right hostname + TLS in
+# 20-gateway.yaml (avoids the hostname-less `websecure` listener throwing InvalidTLSConfiguration).
+#
+# The provider auto-creates a GatewayClass named `traefik` (controller traefik.io/gateway-controller).
+# Traefik's entrypoints stay at their k3s defaults: web=:8000, websecure=:8443 (exposed by the
+# Traefik LoadBalancer Service as :80 / :443). Our Gateway listeners must therefore use 8000/8443.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesGateway:
+        enabled: true
+      # Keep the classic Ingress/CRD providers off — we route exclusively via the Gateway API.
+      kubernetesIngress:
+        enabled: false
+    # Do not auto-create a shared Gateway; we own ours in the jesus-twin namespace.
+    gateway:
+      enabled: false
+    # NOTE: deliberately NO global web->websecure redirect here. An entrypoint-level permanent
+    # redirect would 301 the HTTP-01 ACME path (/.well-known/acme-challenge/) before the solver's
+    # temporary HTTPRoute can match it, jeopardizing issuance. Keep port 80 open for the challenge;
+    # add an HTTPS redirect per-route (an HTTPRoute RequestRedirect filter) AFTER the cert is Ready.

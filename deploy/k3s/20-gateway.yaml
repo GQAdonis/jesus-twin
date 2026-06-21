@@ -1,0 +1,45 @@
+# The app namespace + our own Gateway. cert-manager's gateway-shim watches the listener annotation
+# and provisions the `jesus-twin-tls` Secret from Let's Encrypt automatically (no manual Certificate
+# object needed).
+#
+# Listener ports are 8000/8443 to match k3s Traefik's entrypoints (web/websecure) — the Traefik
+# LoadBalancer Service still exposes these to the outside world as 80/443. (gotcha #2.)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jesus-twin
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: jesus-twin-gateway
+  namespace: jesus-twin
+  annotations:
+    # cert-manager creates a Certificate for the HTTPS listener's hostname using this issuer,
+    # and writes the result into the `jesus-twin-tls` Secret referenced below.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: traefik
+  listeners:
+    # HTTP listener — required for the HTTP-01 challenge (and any pre-TLS traffic). Port 8000 == the
+    # Traefik `web` entrypoint.
+    - name: web
+      protocol: HTTP
+      port: 8000
+      allowedRoutes:
+        namespaces:
+          from: All          # let cert-manager's solver HTTPRoute (its own ns) attach
+    # HTTPS listener — TLS terminates in Traefik using the cert-manager-managed Secret. Port 8443
+    # == the Traefik `websecure` entrypoint.
+    - name: websecure
+      protocol: HTTPS
+      port: 8443
+      hostname: jesus-twin.know-me.tools
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: jesus-twin-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

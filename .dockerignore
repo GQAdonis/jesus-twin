@@ -1,0 +1,20 @@
+# Keep the Docker build context small: exclude the multi-GB model dirs, Rust build output, the
+# embedded DB, the git history, and python caches. The image needs only source + build/rag_corpus.jsonl.
+.git
+**/target
+jesus-twin-base
+jesus-twin-merged
+jesus-twin-embeddinggemma
+*.db
+**/twin.db*
+twin.db*
+eval/out
+build/modern_drafts.jsonl
+build/principle_tags.jsonl
+build/tanakh*.jsonl
+build/gospel_narrative.jsonl
+__pycache__
+**/__pycache__
+*.pyc
+.env
+.env.*

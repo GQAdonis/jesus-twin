@@ -1,0 +1,41 @@
+# Let's Encrypt issuer for jesus-twin.know-me.tools, using the ACME DNS-01 challenge via Cloudflare.
+#
+# DNS-01 is the chosen path: cert-manager proves domain ownership by writing a TXT record through
+# the Cloudflare API (token in the `cloudflare-api-token` Secret). This means:
+#   - the A record can stay PROXIED (orange cloud) -> origin IP hidden, Cloudflare DDoS/WAF in front;
+#   - NO inbound port 80 / router forward needed for issuance;
+#   - wildcard certs (*.know-me.tools) are possible.
+#
+# Requires: Gateway API CRDs installed; cert-manager started with Gateway API support; and the
+# Cloudflare token Secret created (see 15-cloudflare-secret.example.yaml).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@know-me.tools           # <-- set a real address (expiry notices)
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+        selector:
+          dnsZones:
+            - know-me.tools
+# ---------------------------------------------------------------------------------------------
+# ALTERNATIVE: HTTP-01 through the Gateway (needs the A record DNS-only + ports 80/443 forwarded).
+# Swap the `solvers:` block above for:
+#
+#   solvers:
+#     - http01:
+#         gatewayHTTPRoute:
+#           parentRefs:
+#             - name: jesus-twin-gateway
+#               namespace: jesus-twin
+#               kind: Gateway
+#               group: gateway.networking.k8s.io

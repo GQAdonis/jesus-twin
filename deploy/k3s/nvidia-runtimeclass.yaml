@@ -1,0 +1,16 @@
+# The `nvidia` RuntimeClass that GPU pods reference (spec.runtimeClassName: nvidia).
+#
+# It maps to the `nvidia` containerd runtime handler that `nvidia-ctk runtime configure` added to
+# k3s' containerd config. With recent k3s + NVIDIA Container Toolkit, k3s auto-detects the runtime
+# and may create this RuntimeClass for you — `kubectl get runtimeclass` to check before applying.
+#
+# You also need the NVIDIA device plugin so the scheduler sees `nvidia.com/gpu` as a resource:
+#   helm repo add nvdp https://nvidia.github.io/k8s-device-plugin && helm repo update
+#   helm install nvdp nvdp/nvidia-device-plugin \
+#     --namespace nvidia-device-plugin --create-namespace \
+#     --set runtimeClassName=nvidia
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
