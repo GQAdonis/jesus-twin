@@ -36,6 +36,16 @@ pub struct Passage {
     pub move_: String,
     #[serde(default)]
     pub translation: String,
+    /// Life-domain tags (principle-index-v1) — machine-tagged retrieval facets (e.g.
+    /// `["fear/anxiety","provision"]`). NEVER displayed or trained: they steer retrieval and feed
+    /// Tier-2 principle-bridging. `context_lines` uses only `text_original`.
+    #[serde(default)]
+    pub domains: Vec<String>,
+    /// Governing principles this saying establishes — short statements, each derived from the
+    /// saying itself (never invented). Same facet rules as `domains`. Used by `principle-tier` to
+    /// bridge an adjacent question to the principle the cited passages establish.
+    #[serde(default)]
+    pub principles: Vec<String>,
     /// Fused retrieval score, populated by the query. `None` for stored records.
     #[serde(default)]
     pub score: Option<f32>,
@@ -87,4 +97,71 @@ impl RetrievalSet {
     pub fn top_score(&self) -> f32 {
         self.passages.first().and_then(|p| p.score).unwrap_or(0.0)
     }
+}
+
+/// One episodic memory — a fact about the **user and the relationship**, never about Jesus
+/// (episodic-memory; pre-planning 03). A distinct type and a distinct `memory` table, so corpus
+/// retrieval can never surface a memory as if it were scripture, and a memory can never be phrased
+/// as the mentor's belief about the world. `scope` isolates one relationship's memories.
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub struct Memory {
+    pub id: String,
+    /// `observation` | `reflection` | `preference`.
+    #[serde(default)]
+    pub kind: String,
+    /// The relationship key (user id, else session id) — every query is scoped to it.
+    #[serde(default)]
+    pub scope: String,
+    pub text: String,
+    #[serde(default)]
+    pub importance: i64,
+    /// ISO-8601 timestamp the store stamped at record time.
+    #[serde(default)]
+    pub at: String,
+    /// Citations from the reply this observation came from (provenance, not doctrine).
+    #[serde(default)]
+    pub refs: Vec<String>,
+}
+
+/// One retrieved Tanakh verse — **his source material, NOT his words** (hebrew-bible). A distinct
+/// type from [`Passage`] so the two corpora can never be conflated: adapters label these "source
+/// material" / "what he drew on", never as the twin's own teaching.
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub struct SourcePassage {
+    #[serde(rename = "ref")]
+    #[surreal(rename = "ref")]
+    pub ref_: String,
+    pub text: String,
+    #[serde(default)]
+    pub book: String,
+    /// `torah` | `prophets` | `writings`.
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub translation: String,
+    /// Fused retrieval score, populated by the query. `None` for stored records.
+    #[serde(default)]
+    pub score: Option<f32>,
+}
+
+/// One retrieved Gospel-narrative passage — **what the record shows he DID, not his words**
+/// (gospel-context-kb). A distinct type so "example by deed" can never be rendered as his teaching.
+/// `attestation` (`single`|`multiply`) + `witnesses` flag how broadly the record attests it.
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub struct NarrativePassage {
+    #[serde(rename = "ref")]
+    #[surreal(rename = "ref")]
+    pub ref_: String,
+    pub text: String,
+    #[serde(default)]
+    pub book: String,
+    /// `single` | `multiply` — how many Gospels attest it (mechanical attestation is a follow-up;
+    /// defaults to `single`).
+    #[serde(default)]
+    pub attestation: String,
+    #[serde(default)]
+    pub witnesses: Vec<String>,
+    /// Fused retrieval score, populated by the query. `None` for stored records.
+    #[serde(default)]
+    pub score: Option<f32>,
 }

@@ -204,3 +204,300 @@ UI rendering of the low-confidence chunk (Workstream 4 — emission only here); 
 refusal signal (follow-up above); the pre-existing `jesus-twin-api` `openai` `non_stream_refusal`
 test drift (asserts "don't address that" vs the adapter's "I can't speak to that" — unrelated to
 this change).
+
+---
+
+# Life-questions tier benchmark — baseline (2026-06-15)
+
+The `eval-life-questions` change (Wave 1) adds a 60-question tier-correctness benchmark across ~24
+life domains (`eval/life-questions.jsonl`), each labeled with its expected gate tier. The runner
+(`run_life_questions`, AG-UI surface) reads the *actual* tier from the emitted chunks
+(`x-jesus-twin/refusal` → T3, `x-jesus-twin/low-confidence` → T2, else → T1) and scores tier match
++ citation presence. Baseline against the RAG-first release (base Gemma 4, `twin.db`):
+
+**31/60 tier-correct (52%), 1 false-confidence failure.**
+
+| Expected | Tier-correct | Where the misses go |
+|---|---|---|
+| T1 (grounded) | 20/26 | 6 under-flagged → T2 (harmless) |
+| T2 (low-confidence) | 11/25 | **14 → T1** — the documented two-leg out-of-corpus residual |
+| **T3 (refuse)** | **0/9** | 8 → T2 (flagged but answered), 1 → T1 (`lq-052`, false confidence) |
+
+**Interpretation:** this directly quantifies the gate-calibration Reflect finding. The gate is
+reasonable at T1, under-flags T2 (the 2-leg residual), and **cannot hard-refuse** — 0/9
+oracle/doctrine/medical probes reached T3 (e.g. "give me the date the world ends", "what medication
+dose" are answered, mostly with a T2 low-confidence flag). Hard refusal (T3) only fires on *empty*
+retrieval, which natural-language questions rarely produce. This is strong, quantified evidence for
+the deferred **option-B discriminating signal** (per-leg rank depth / relevance judge) as the path
+to real refusal. The benchmark is the instrument that will measure that work and gate retraining.
+
+**v1 scope note:** the runner scores tier-routing + citation presence. The pre-planning's deeper
+checks ("T2 frame present", "no invented specificity") need an LLM-judge and are deferred.
+
+---
+
+# modern-legs-v1 — reviving the dead modern retrieval legs (2026-06-17)
+
+Two of the four retrieval legs (`text_modern` BM25 + `emb_modern` vector) were dead: `text_modern`
+is empty for all 927 sayings until human annotation fills the `Modern Rendering` column. This change
+populates them with **doc2query-style machine drafts** — a modern-English rewrite of each saying's
+`text_original` — so a modern-phrased query matches lexically (modern BM25) and semantically
+(`emb_modern`), improving recall **now** without waiting on annotation.
+
+## The bright line (enforced, not just stated)
+
+Machine text may influence *which* passages retrieve, never *what is said or trained*:
+- Drafts live in a **sidecar** (`build/modern_drafts.jsonl`, git-ignored), each `machine_draft: true`,
+  and are applied to `saying.text_modern` with a `machine_draft` flag — never written to the xlsx or
+  `rag_corpus.jsonl`.
+- **Display:** `orchestrator::context_lines` uses `text_original` only — pinned by the
+  `display_uses_original_not_modern` regression test.
+- **Training:** `build_training_jsonl.py` reads the human `Modern Rendering` xlsx column, never the
+  sidecar.
+- A human-verified rendering later overwrites the draft and resets `machine_draft = false`
+  (row-by-row promotion as Wave-3 annotation proceeds).
+
+## Pipeline (new CLI subcommands)
+
+```bash
+# 1. Generate drafts (plain generation, NOT the twin orchestrator). --limit N to sample.
+jesus-twin modern-drafts ../build/rag_corpus.jsonl --out ../build/modern_drafts.jsonl
+# 2. Apply into a store + re-embed the modern legs (needs --features cuda for the embedder).
+jesus-twin apply-modern-drafts ../build/modern_drafts.jsonl --db ./twin.db
+# 3. Re-run the gate calibration — live_legs goes 2 -> 4; expect more 2-leg agreement.
+jesus-twin gate calibrate --eval-dir ../eval --db ./twin.db --out ../eval/out/gate-calibration.jsonl
+```
+
+## Verified on a 10-passage sample
+
+Drafts are clean modern paraphrases, no commentary ("Blessed are the poor in spirit" → "Those who are
+humble in spirit are fortunate"; "Man shall not live by bread alone" → "People must live by more than
+just food…"). After apply, a query using **draft-only wording** ("humble in spirit are fortunate" —
+absent from the original) returns Matthew 5:3 as the top hit, proving the modern BM25 leg is live.
+
+## Handoff — the full corpus run (the GPU step to trigger)
+
+Run steps 1–3 above without `--limit` against the canonical `twin.db`: ~927 plain generations
+(multi-hour) then a re-embed and recalibration. Expected effect: covered queries reach `live_legs = 4`
+and more reach 2-leg agreement (Tier 1), which should *raise* the gate's grounding confidence; the
+recalibration quantifies it and is the regression baseline. (The ~300-row human-annotation milestone
+later promotes drafts to verified renderings and triggers another recalibration — a no-op under
+leg-agreement if nothing shifted.)
+
+---
+
+# hebrew-bible — the Tanakh as a labeled source tool (2026-06-18)
+
+The Hebrew Bible (JPS 1917) is *his intellectual furniture* — what he quoted, alluded to (*remez*),
+and reasoned from (*kal v'homer*). This change makes it a **separate, retrievable corpus**, always
+labeled **his source material, never his words** (CLAUDE.md Bible scope).
+
+## Source — public-domain JPS 1917 via Sefaria (NOT the fragile scrape)
+
+The old `ingest_tanakh.py` scraped sacred-texts.com with heuristic URL slugs + fake verse counters
+(now 403, and mis-referenced). Rewritten to use the **Sefaria API**, which serves the JPS 1917
+**verse-accurate** as a named version. Critical: Sefaria's *default* English is the modern RJPS
+(CC-BY-NC, copyrighted), so the script pins the exact public-domain version
+`"The Holy Scriptures: A New Translation (JPS 1917)"` (license "Public Domain") via `ven=`. Stdlib
+only — no third-party deps. Verified: Genesis + Exodus → 2,743 verse-accurate records ("In the
+beginning God created the heaven and the earth.").
+
+## Store — a separate `tanakh` table, never blended
+
+- Schema: `tanakh` table (`ref/text/book/category/translation/emb`) with its own BM25 + HNSW
+  indexes — wholly separate from `saying`.
+- `SourcePassage` is a distinct type from `Passage`, so the two corpora can't be conflated;
+  adapters/CLI label results "source material… NOT his own words".
+- `SurrealStore::ingest_tanakh` (+ `embed_tanakh`) and `retrieve_tanakh` (BM25 + vector RRF).
+- New CLI: `ingest-tanakh`, `retrieve-tanakh`. Test `ingests_tanakh_as_separate_source_corpus`
+  pins the load + the **separation invariant** (Tanakh must not leak into red-letter retrieval).
+
+## Verified on a sample (CPU, BM25)
+
+Ingested the 2,743-verse Genesis+Exodus sample text-only; `retrieve-tanakh "created the heaven and
+the earth"` → Genesis 1:1/2:4/2:1; `"bread from heaven manna"` → the Exodus 16 manna verses — each
+under the source-material label. The red-letter `retrieve("bread")` returns nothing (separation holds).
+
+## Handoff — the full corpus run (the GPU/network step to trigger)
+
+```bash
+python ingest_tanakh.py --out build/tanakh.jsonl                 # ~23k verses from Sefaria (network)
+jesus-twin ingest-tanakh ../build/tanakh.jsonl --db ./twin.db    # load + embed (GPU; --features cuda)
+jesus-twin retrieve-tanakh "have you not read" --db ./twin.db    # spot-check
+```
+
+## Deferred (noted, not in this change)
+
+Surfacing the Tanakh as a "his source material" block inside `ask`/`serve` answers (an orchestrator
+addition that runs `retrieve_tanakh` alongside the red-letter retrieval and emits it as a distinct,
+labeled context block / AG-UI chunk) — the store + retrieval primitives are in place; the
+orchestrator wiring + the M09/remez cross-reference graph edges are a follow-up.
+
+---
+
+# principle-index-v1 + principle-tier — the general-mentor unlock (Wave 2, 2026-06-19)
+
+These two coupled changes turn Tier-2 from "decline what the passages don't cover" into
+**principle-bridging**: name the governing principle the cited passages establish and speak to how
+it bears on an adjacent life question — then say where the record stops.
+
+## principle-index-v1 — life-domain + principle facets
+
+- A fixed ~20-domain **taxonomy** (`TAXONOMY` in the CLI): money/provision, fear/anxiety, grief,
+  marriage/divorce, parenting, conflict/forgiveness, ambition/status, honesty, illness,
+  purpose/calling, enemies, doubt, prayer, wealth/generosity, judgment-of-others, work, power,
+  loneliness, temptation, death.
+- New `saying` facets `domains` + `principles` (+ `machine_tagged` flag) and on `Passage`. **Same
+  bright line as modern-legs:** machine tags are retrieval metadata only — never displayed
+  (`context_lines` uses `text_original`) or trained (SFT reads the xlsx). A wrong tag costs at most
+  a retrieval miss, never fabricated content.
+- Pipeline (mirrors modern-legs): `principle-tag` (plain LLM generation → `DOMAINS:`/`PRINCIPLE:`,
+  parsed leniently into the taxonomy) → sidecar `build/principle_tags.jsonl`; `apply-principle-tags`
+  loads facets into the store (no re-embed — facets don't change vectors). Parser unit-tested.
+
+## principle-tier — Tier-2 principle-bridging
+
+- No gate change needed: the orchestrator already has `set.passages[].principles`. On a
+  `LowConfidence` turn it `collect_principles(&set)` and, if any, assembles
+  `assemble_context_principle_tier` (the `PRINCIPLE_BRIDGING_HEAD` + the principles) instead of the
+  plain hedge — a per-turn context injection; **SYSTEM_PROMPT untouched**. The principles also ride
+  on the `x-jesus-twin/low-confidence` chunk for the honesty surface.
+- Falls back to the plain low-confidence hedge when no principles are tagged (so it's a safe no-op
+  until tagging runs). Prompt + orchestrator integration tests pin both paths.
+
+## Handoff — the full tagging run (GPU)
+
+```bash
+jesus-twin principle-tag ../build/rag_corpus.jsonl --out ../build/principle_tags.jsonl  # ~927 gens
+jesus-twin apply-principle-tags ../build/principle_tags.jsonl --db ./twin.db
+# then Tier-2 answers bridge via the tagged principles; re-run gate calibrate as regression.
+```
+
+## Deferred follow-up
+
+The plan's **theme-expansion retrieval boost** (embed question → nearest domain → boost
+domain-tagged passages as a 5th RRF leg) is not in this v1 — the facets + bridging land first;
+boosting recall via the domain leg is a contained follow-up. Human review later promotes tags
+(`machine_tagged = false`).
+
+---
+
+# episodic-memory — the fourth surface (Wave 2, 2026-06-19)
+
+A relationship memory that records facts about the **user**, never about Jesus (pre-planning 03).
+The load-bearing invariant: **memory must never contaminate the other three surfaces** — a memory
+may say "user asked about anxiety on June 3"; it may never become new content about Jesus.
+
+## Isolation, structurally enforced
+
+- A separate `memory` SurrealDB table (kind / scope / text / importance / at / refs). Corpus
+  retrieval (`Store::retrieve`) only ever reads `saying`/`tanakh` — it is **structurally impossible**
+  for it to return a memory. The `memory_is_isolated_and_scoped` test pins this.
+- `scope` keys one relationship (`Session::memory_scope()` = user id if known, else session id).
+  Every memory read/write filters on it — **memories never cross relationships** (tested A vs B).
+- New `Store` methods (`record_memory` / `retrieve_memories` / `list_memories` / `delete_memory`)
+  with **default no-ops**, so only SurrealDB implements them and test doubles are unaffected.
+
+## Wiring
+
+- `Session` gains `user_id: Option<Uuid>` + `with_user()` (backward-compatible; `Session::new`
+  unchanged). Anonymous sessions scope memory to the single conversation.
+- Orchestrator: **pre-turn** it recalls the top-3 salient memories (importance, then recency) and
+  injects them as a `[What you remember about this person…]` block BEFORE the grounding block — a
+  per-turn context injection, **SYSTEM_PROMPT untouched**. **Post-turn** (non-refused) it records a
+  deterministic observation ("Asked: …" + the verses that grounded the reply). Both are **non-fatal**.
+- CLI `memory list <scope>` / `memory delete <id>` — the human inspect / override control
+  (CLAUDE.md principle 15).
+
+## v1 scope (deferred)
+
+Deterministic observations (the user's question + cited refs); **reflection synthesis** (LLM
+rollup across observations) and **relevance-ranked recall** (vector/BM25 over memory, vs. the
+current importance×recency) are documented follow-ups. The `preference` kind exists in the schema
+but is not yet auto-extracted.
+
+---
+
+# gospel-context-kb — the third labeled corpus: what he DID (Wave 2, 2026-06-20)
+
+The non-red-letter Gospel narrative — his deeds, settings, and the dialogue around the sayings —
+as a **third labeled corpus**: "what the record shows he did," never his words (the red-letter
+`saying` corpus). Gives Tier-2 answers access to *example by deed* with the same citation discipline.
+
+## Source — the complement of the red-letter extractor
+
+`extract_gospel_narrative.py` reuses the WEB USFX (eBible.org, public domain) the red-letter
+extractor downloads, but keeps the **complement**: each Gospel verse's text with the `<wj>` (his
+words) spans AND the editorial apparatus (`<f>` footnotes, `<x>` cross-refs) removed. A verse is
+emitted only when its remaining narrative text is substantial (≥25 chars), so a bare speech tag
+("He said to them,") is dropped while a deed ("Being moved with compassion, he stretched out his
+hand and touched him") is kept. Verified: **2,182 clean narrative passages** across the four
+Gospels; footnotes gone, no his-words leak, pure sayings (e.g. Mark 1:17) correctly absent.
+
+## Store — a separate `gospel_narrative` table
+
+- Schema mirrors `tanakh` (ref/text/book + BM25 + HNSW), plus `attestation` + `witnesses`.
+- `NarrativePassage` is a distinct type — adapters/CLI label results "what the record shows he
+  did… NOT his own words." `SurrealStore::ingest_gospel_narrative` / `retrieve_gospel_narrative`
+  (BM25 + vector RRF, via the generic `rank_table_*` helpers). CLI `ingest-gospel-narrative` /
+  `retrieve-gospel-narrative`. Test `ingests_gospel_narrative_as_separate_corpus` pins the load +
+  the separation invariant (narrative must not leak into red-letter retrieval).
+- Verified on the full 2,182-passage extraction (CPU/BM25): "touched the leper and healed" →
+  Luke 22:51 / Luke 6:19 / Mark 3:10 (healing deeds), labeled + attestation-flagged.
+
+## Honest deferral — automated attestation v1 is BLOCKED
+
+The plan's "multiply-vs-single attestation computed mechanically from synoptic-parallel counts"
+**cannot be done yet**: the corpus has **no synoptic-parallel data** (the `parallels` graph is
+unpopulated — ingest.rs has always noted this). So `attestation` defaults to `single`; computing
+true multiply-attestation needs a synoptic-parallel mapping (pericope alignment across the
+Gospels), which is its own data task. Documented as the follow-up; the corpus + retrieval + label
+land now, attestation-flagged and ready to populate.
+
+## Handoff — the full run (network + GPU)
+
+```bash
+python extract_gospel_narrative.py --out build/gospel_narrative.jsonl   # ~2.2k passages (network)
+jesus-twin ingest-gospel-narrative ../build/gospel_narrative.jsonl --db ./twin.db   # load + embed (GPU)
+jesus-twin retrieve-gospel-narrative "he wept at the tomb" --db ./twin.db
+```
+Orchestrator wiring (surfacing a labeled "what the record shows he did" block in `ask`/`serve`
+answers) is the same follow-up flagged for hebrew-bible — the store + retrieval primitives are in
+place.
+
+# Orchestrator wiring — the two source/narrative blocks are now live
+
+The hebrew-bible and gospel-context-kb deferrals above ("surface a labeled block in the answer")
+are **closed**. Each turn now retrieves, with the same user query, two SUPPLEMENTARY labeled
+corpora alongside the red-letter `set` and injects them as DISTINCT context blocks:
+
+- **His source material** (Tanakh) → `prompt::SOURCE_INSTRUCTION` block ("the Hebrew scriptures you
+  drew on … not your own teaching") + an additive `x-jesus-twin/source-text` AG-UI chunk
+  (ref/text/category).
+- **His deeds** (Gospel narrative) → `prompt::NARRATIVE_INSTRUCTION` block ("what the record shows
+  you did … deeds, not your words") + an `x-jesus-twin/narrative-context` chunk
+  (ref/text/attestation/witnesses).
+
+Context order is ascending attention: memory → source → narrative → **grounding (his own words)
+last**, the high-attention end-of-prompt position. `SUPP_LIMIT = 2` each, so they contextualize
+the answer without ever dominating the red-letter truth the model paraphrases. Retrieval is
+non-fatal (`unwrap_or_default`, like memory recall) and happens after the coverage gate, so a
+refused turn does no extra work.
+
+## The bug this surfaced — `Arc<SurrealStore>` silently no-op'd the trait defaults
+
+The served orchestrator holds the store behind an `Arc`. The blanket `impl<S: Store> Store for
+Arc<S>` only forwarded four methods; every method with a default impl (the memory quartet, and now
+the two `retrieve_*` corpora) fell through to the **default no-op** instead of the inner store.
+That means **episodic-memory was already a silent no-op through `Arc` in the served path** (the
+direct-`SurrealStore` tests passed, hiding it). Fixed by forwarding all of them through `Arc`. The
+two corpus retrievers were also promoted from inherent methods to `Store` trait methods so they
+forward at all (the orchestrator is generic over `S: Store`).
+
+## Verification
+
+`source_and_narrative_corpora_wire_as_distinct_labeled_blocks` (a capturing engine records the
+generation context) asserts: both AG-UI chunks emit with their distinguishing facets; both labeled
+blocks reach the context; the red-letter grounding block is still present; and grounding sits AFTER
+source + narrative. Full `jesus-twin-core` suite (10 unit + 6 integration) green; `jesus-twin-store`
+(7) green; `cargo clippy --workspace` clean.

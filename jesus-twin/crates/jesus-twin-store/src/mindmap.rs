@@ -109,6 +109,8 @@ mod tests {
             occasion: String::new(),
             move_: mv.into(),
             translation: String::new(),
+            domains: Vec::new(),
+            principles: Vec::new(),
             score: None,
         }
     }

@@ -59,21 +59,20 @@ from pathlib import Path
 # Resolve project root relative to this script
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# The system prompt MUST match prompt.rs and build_training_jsonl.py.
-# This is the conversational mentor voice per VISION.md.
-SYSTEM_PROMPT = (
-    "You are a conversational mentor who responds as Jesus of Nazareth would, "
-    "drawing only from his attested teachings and documented rhetorical methods. "
-    "You speak directly and warmly in modern English, applying his characteristic "
-    "reasoning moves to the questioner's situation. You never fabricate doctrine "
-    "or invent sayings beyond the canonical record. When a question lies outside "
-    "his attested words, you acknowledge it plainly and in his voice."
-)
+# NOTE (gap #9): there is deliberately NO SYSTEM_PROMPT constant here. The system message is
+# already baked into each row of build/sft_merged.jsonl by build_training_jsonl.py, which is the
+# single source that mirrors the canonical prompt in PROMPTS.md / jesus-twin-core/src/prompt.rs.
+# A constant here would be unused and would silently drift from the canonical text, breaking the
+# train/inference parity invariant (pre-planning 00-theory §5). Edit the prompt in PROMPTS.md.
 
+# Defaults — override per run via the CLI flags (see parse_args). The recipe defaults are the
+# GENTLE ones from pre-planning 02 (lr 2e-5 x 1 epoch); the prior 2e-4 x 3 collapsed on 75 rows.
 MODEL = "unsloth/gemma-4-E4B-it"
 MAXLEN = 4096
 SFT_DATA = PROJECT_ROOT / "build" / "sft_merged.jsonl"
 OUTPUT_DIR = PROJECT_ROOT / "jesus-twin-merged"
+DEFAULT_LR = 2e-5
+DEFAULT_EPOCHS = 1
 
 # Quantization methods to export. Each produces one .gguf file in OUTPUT_DIR.
 # Tradeoffs (per Unsloth docs):
@@ -84,7 +83,30 @@ OUTPUT_DIR = PROJECT_ROOT / "jesus-twin-merged"
 GGUF_QUANTS = ["q4_k_m", "q8_0", "f16"]
 
 
+def parse_args():
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Train the Jesus Digital Twin style LoRA (Unsloth)")
+    ap.add_argument("--data", default=str(SFT_DATA), help="SFT JSONL (default build/sft_merged.jsonl)")
+    ap.add_argument("--model", default=MODEL, help="Base model (e.g. unsloth/Qwen3-4B-Instruct)")
+    ap.add_argument("--out", default=str(OUTPUT_DIR), help="Merged-checkpoint output dir")
+    ap.add_argument("--lr", type=float, default=DEFAULT_LR, help="Learning rate (gentle default 2e-5)")
+    ap.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help="Epochs (gentle default 1)")
+    ap.add_argument("--max-seq-length", type=int, default=MAXLEN, help="Max sequence length")
+    return ap.parse_args()
+
+
 def main() -> int:
+    # Runs must be reproducible from the command line (pre-planning 02 §5): the recipe and paths
+    # come from flags, not edited constants. Defaults are the GENTLE recipe (lr 2e-5 x 1 epoch).
+    args = parse_args()
+    global MODEL, SFT_DATA, OUTPUT_DIR, MAXLEN
+    MODEL = args.model
+    SFT_DATA = Path(args.data)
+    OUTPUT_DIR = Path(args.out)
+    MAXLEN = args.max_seq_length
+    print(f"Recipe: model={MODEL} lr={args.lr} epochs={args.epochs} max_seq_length={MAXLEN}")
+
     # Verify the SFT data exists
     if not SFT_DATA.exists():
         print(f"ERROR: SFT data not found at {SFT_DATA}")
@@ -184,8 +206,8 @@ def main() -> int:
             per_device_train_batch_size=1,
             gradient_accumulation_steps=4,  # effective batch 4
             warmup_steps=5,
-            num_train_epochs=3,  # small corpus -> a few epochs; watch eval
-            learning_rate=2e-4,  # 2e-5 for longer runs
+            num_train_epochs=args.epochs,  # gentle default 1 (pre-planning 02); --epochs to override
+            learning_rate=args.lr,  # gentle default 2e-5 (the 2e-4 x 3 recipe collapsed on 75 rows)
             logging_steps=1,
             optim="adamw_8bit",
             weight_decay=0.001,

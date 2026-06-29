@@ -19,7 +19,7 @@ use surrealdb::types::SurrealValue;
 
 use crate::embed::Embed;
 use crate::ingest;
-use crate::retrieve::{Passage, RetrievalSet};
+use crate::retrieve::{Memory, NarrativePassage, Passage, RetrievalSet, SourcePassage};
 use crate::schema;
 use crate::store::{Store, StoreError};
 
@@ -70,6 +70,152 @@ impl SurrealStore {
         &self.db
     }
 
+    /// Apply machine-draft modern text (`modern-legs-v1`) from a sidecar JSONL onto existing
+    /// `saying` rows (flagging `machine_draft = true`) and re-embed so the two dead modern
+    /// retrieval legs (`text_modern` BM25 + `emb_modern` vector) go live. **Retrieval-indexing
+    /// only** — see [`ingest::apply_modern_drafts`]; nothing here is displayed or trained. An
+    /// embedder must be attached to populate `emb_modern`. Returns the number of drafts applied.
+    pub async fn ingest_modern_drafts(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        let count = ingest::apply_modern_drafts(&self.db, jsonl_path).await?;
+        match &self.embedder {
+            Some(embedder) => ingest::embed_all(&self.db, embedder.as_ref()).await?,
+            None => tracing::warn!(
+                "no embedder attached — text_modern updated but emb_modern (vector leg) not populated"
+            ),
+        }
+        Ok(count)
+    }
+
+    /// Apply machine-tagged life-domain facets (`principle-index-v1`) from a sidecar onto existing
+    /// `saying` rows. Retrieval metadata only (no re-embed — facets don't change the vectors).
+    /// See [`ingest::apply_principle_tags`]. Returns the number of rows tagged.
+    pub async fn ingest_principle_tags(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        ingest::apply_principle_tags(&self.db, jsonl_path).await
+    }
+
+    /// Load the Tanakh JSONL into the separate `tanakh` table (hebrew-bible: his source material)
+    /// and embed it if an embedder is attached. Returns the number of verses loaded.
+    pub async fn ingest_tanakh(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        let count = ingest::ingest_tanakh(&self.db, jsonl_path).await?;
+        match &self.embedder {
+            Some(embedder) => ingest::embed_tanakh(&self.db, embedder.as_ref()).await?,
+            None => tracing::warn!(
+                "no embedder attached — tanakh text loaded but emb (vector leg) not populated"
+            ),
+        }
+        Ok(count)
+    }
+
+    /// BM25 leg over `tanakh.text`: ranked verse refs (the record ids) for `q`.
+    async fn rank_tanakh_bm25(&self, q: &str, limit: usize) -> Result<Vec<String>, StoreError> {
+        let sql = "SELECT record::id(id) AS id, search::score(0) AS s FROM tanakh
+                   WHERE text @0,OR@ $q ORDER BY s DESC LIMIT $limit;";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("q", q.to_string()))
+            .bind(("limit", limit))
+            .await?;
+        Ok(res
+            .take::<Vec<IdScoreRow>>(0)?
+            .into_iter()
+            .map(|r| r.id)
+            .collect())
+    }
+
+    /// Vector leg over `tanakh.emb` (HNSW): ranked verse refs for `embedding`.
+    async fn rank_tanakh_vector(
+        &self,
+        embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<String>, StoreError> {
+        let sql = format!("SELECT record::id(id) AS id FROM tanakh WHERE emb <|{limit},64|> $emb;");
+        let mut res = self.db.query(sql).bind(("emb", embedding.to_vec())).await?;
+        Ok(res
+            .take::<Vec<IdRow>>(0)?
+            .into_iter()
+            .map(|r| r.id)
+            .collect())
+    }
+
+    /// Fetch Tanakh verses for fused `(ref, score)` pairs, in fused-rank order.
+    async fn fetch_tanakh(&self, ids: &[(String, f32)]) -> Result<Vec<SourcePassage>, StoreError> {
+        let id_list: Vec<String> = ids.iter().map(|(id, _)| id.clone()).collect();
+        let sql = "SELECT ref, text, book, category, translation FROM tanakh
+                   WHERE record::id(id) IN $ids;";
+        let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
+        let mut by_ref: std::collections::HashMap<String, SourcePassage> = res
+            .take::<Vec<SourcePassage>>(0)?
+            .into_iter()
+            .map(|p| (p.ref_.clone(), p))
+            .collect();
+        let passages = ids
+            .iter()
+            .filter_map(|(id, score)| {
+                by_ref.remove(id).map(|mut p| {
+                    p.score = Some(*score);
+                    p
+                })
+            })
+            .collect();
+        Ok(passages)
+    }
+
+    /// Load the Gospel-narrative JSONL into the separate `gospel_narrative` table
+    /// (gospel-context-kb: what the record shows he DID) and embed it if an embedder is attached.
+    pub async fn ingest_gospel_narrative(&self, jsonl_path: &str) -> Result<usize, StoreError> {
+        let count = ingest::ingest_gospel_narrative(&self.db, jsonl_path).await?;
+        match &self.embedder {
+            Some(embedder) => ingest::embed_gospel_narrative(&self.db, embedder.as_ref()).await?,
+            None => tracing::warn!(
+                "no embedder attached — gospel narrative loaded but emb (vector leg) not populated"
+            ),
+        }
+        Ok(count)
+    }
+
+    /// One BM25 leg over `<table>.text`: ranked record ids for `q`. (Generic over the
+    /// single-text source tables — tanakh / gospel_narrative.)
+    async fn rank_table_bm25(
+        &self,
+        table: &str,
+        q: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, StoreError> {
+        let sql = format!(
+            "SELECT record::id(id) AS id, search::score(0) AS s FROM {table}
+             WHERE text @0,OR@ $q ORDER BY s DESC LIMIT $limit;"
+        );
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("q", q.to_string()))
+            .bind(("limit", limit))
+            .await?;
+        Ok(res
+            .take::<Vec<IdScoreRow>>(0)?
+            .into_iter()
+            .map(|r| r.id)
+            .collect())
+    }
+
+    /// One HNSW vector leg over `<table>.emb`: ranked record ids for `embedding`.
+    async fn rank_table_vector(
+        &self,
+        table: &str,
+        embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<String>, StoreError> {
+        let sql =
+            format!("SELECT record::id(id) AS id FROM {table} WHERE emb <|{limit},64|> $emb;");
+        let mut res = self.db.query(sql).bind(("emb", embedding.to_vec())).await?;
+        Ok(res
+            .take::<Vec<IdRow>>(0)?
+            .into_iter()
+            .map(|r| r.id)
+            .collect())
+    }
+
     /// BM25-only retrieval across both text registers (the fallback when no embedder is set).
     async fn retrieve_bm25(&self, q: &str, limit: usize) -> Result<RetrievalSet, StoreError> {
         // The `@{n},OR@` form gives a scored predicate (ref `n`, read by `search::score(n)`)
@@ -77,7 +223,7 @@ impl SurrealStore {
         // ANY term. Scores from both registers are summed so a hit in either ranks it.
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation,
+                   context, location, occasion, move, translation, domains, principles,
                    (search::score(0) + search::score(1)) AS score
             FROM saying
             WHERE text_original @0,OR@ $q OR text_modern @1,OR@ $q
@@ -284,7 +430,7 @@ impl SurrealStore {
         let id_list: Vec<String> = ids.iter().map(|(id, _)| id.clone()).collect();
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation
+                   context, location, occasion, move, translation, domains, principles
             FROM saying WHERE record::id(id) IN $ids;
         ";
         let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
@@ -321,6 +467,87 @@ impl SurrealStore {
 
 #[async_trait::async_trait]
 impl Store for SurrealStore {
+    /// Retrieve Tanakh verses (HIS SOURCE MATERIAL — never his words) for `query`: BM25 + (when an
+    /// embedder is attached) HNSW vector, fused by RRF. Results are [`SourcePassage`]s so callers
+    /// always label them distinctly from the red-letter corpus. A trait method (not inherent) so it
+    /// forwards through `Arc<SurrealStore>` — the served orchestrator holds the store behind an Arc.
+    async fn retrieve_tanakh(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SourcePassage>, StoreError> {
+        const CANDIDATES: usize = 20;
+        const K: f32 = 60.0;
+        let q = crate::stopwords::strip(query);
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ft = self.rank_tanakh_bm25(&q, CANDIDATES).await?;
+        let fused = match &self.embedder {
+            Some(embedder) => {
+                let emb = embedder.embed_query(query).await?;
+                let v = self.rank_tanakh_vector(&emb, CANDIDATES).await?;
+                rrf_fuse(&[ft, v], K, limit)
+            }
+            None => rrf_fuse(&[ft], K, limit),
+        };
+        if fused.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.fetch_tanakh(&fused).await
+    }
+
+    /// Retrieve Gospel-narrative passages (HIS DEEDS / CONTEXT — never his words) for `query`:
+    /// BM25 + (when an embedder is attached) HNSW vector, fused by RRF. [`NarrativePassage`]s carry
+    /// the attestation flag so callers label them distinctly from the red-letter corpus. A trait
+    /// method (not inherent) so it forwards through `Arc<SurrealStore>` (see `retrieve_tanakh`).
+    async fn retrieve_gospel_narrative(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<NarrativePassage>, StoreError> {
+        const CANDIDATES: usize = 20;
+        const K: f32 = 60.0;
+        let q = crate::stopwords::strip(query);
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ft = self
+            .rank_table_bm25("gospel_narrative", &q, CANDIDATES)
+            .await?;
+        let fused = match &self.embedder {
+            Some(embedder) => {
+                let emb = embedder.embed_query(query).await?;
+                let v = self
+                    .rank_table_vector("gospel_narrative", &emb, CANDIDATES)
+                    .await?;
+                rrf_fuse(&[ft, v], K, limit)
+            }
+            None => rrf_fuse(&[ft], K, limit),
+        };
+        if fused.is_empty() {
+            return Ok(Vec::new());
+        }
+        let id_list: Vec<String> = fused.iter().map(|(id, _)| id.clone()).collect();
+        let sql = "SELECT ref, text, book, attestation, witnesses FROM gospel_narrative
+                   WHERE record::id(id) IN $ids;";
+        let mut res = self.db.query(sql).bind(("ids", id_list)).await?;
+        let mut by_ref: std::collections::HashMap<String, NarrativePassage> = res
+            .take::<Vec<NarrativePassage>>(0)?
+            .into_iter()
+            .map(|p| (p.ref_.clone(), p))
+            .collect();
+        Ok(fused
+            .iter()
+            .filter_map(|(id, score)| {
+                by_ref.remove(id).map(|mut p| {
+                    p.score = Some(*score);
+                    p
+                })
+            })
+            .collect())
+    }
+
     async fn retrieve(&self, query: &str, limit: usize) -> Result<RetrievalSet, StoreError> {
         // Strip stop words first: retrieval uses OR semantics, so without this a question
         // like "what about cryptocurrency" would match on "what"/"about" and slip past the
@@ -356,7 +583,7 @@ impl Store for SurrealStore {
     async fn get_by_ref(&self, scripture_ref: &str) -> Result<Option<Passage>, StoreError> {
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation
+                   context, location, occasion, move, translation, domains, principles
             FROM saying WHERE ref = $ref LIMIT 1;
         ";
         let mut res = self
@@ -371,7 +598,7 @@ impl Store for SurrealStore {
     async fn find_by_move(&self, move_id: &str, limit: usize) -> Result<Vec<Passage>, StoreError> {
         let sql = "
             SELECT record::id(id) AS id, ref, book_author, text_original, text_modern,
-                   context, location, occasion, move, translation
+                   context, location, occasion, move, translation, domains, principles
             FROM saying WHERE move = $move LIMIT $limit;
         ";
         let mut res = self
@@ -381,6 +608,80 @@ impl Store for SurrealStore {
             .bind(("limit", limit))
             .await?;
         Ok(res.take(0)?)
+    }
+
+    // --- episodic-memory: the `memory` table, scope-isolated; never touched by `retrieve`. ---
+
+    async fn record_memory(
+        &self,
+        scope: &str,
+        kind: &str,
+        text: &str,
+        importance: i64,
+        refs: &[String],
+    ) -> Result<String, StoreError> {
+        // CREATE the memory, then project its string id back. `<string> time::now()` stamps an
+        // ISO timestamp so `at` sorts chronologically.
+        let sql = "SELECT record::id(id) AS id FROM (
+            CREATE memory CONTENT {
+                scope: $scope, kind: $kind, text: $text,
+                importance: $importance, at: <string> time::now(), refs: $refs
+            }
+        );";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("scope", scope.to_string()))
+            .bind(("kind", kind.to_string()))
+            .bind(("text", text.to_string()))
+            .bind(("importance", importance))
+            .bind(("refs", refs.to_vec()))
+            .await?;
+        Ok(res
+            .take::<Vec<IdRow>>(0)?
+            .into_iter()
+            .next()
+            .map(|r| r.id)
+            .unwrap_or_default())
+    }
+
+    async fn retrieve_memories(
+        &self,
+        scope: &str,
+        limit: usize,
+    ) -> Result<Vec<Memory>, StoreError> {
+        // Most salient first (importance, then recency). Always filtered by scope — memories never
+        // cross relationships.
+        let sql = "SELECT record::id(id) AS id, kind, scope, text, importance, at, refs
+                   FROM memory WHERE scope = $scope
+                   ORDER BY importance DESC, at DESC LIMIT $limit;";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("scope", scope.to_string()))
+            .bind(("limit", limit))
+            .await?;
+        Ok(res.take(0)?)
+    }
+
+    async fn list_memories(&self, scope: &str) -> Result<Vec<Memory>, StoreError> {
+        let sql = "SELECT record::id(id) AS id, kind, scope, text, importance, at, refs
+                   FROM memory WHERE scope = $scope ORDER BY at DESC;";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("scope", scope.to_string()))
+            .await?;
+        Ok(res.take(0)?)
+    }
+
+    async fn delete_memory(&self, id: &str) -> Result<(), StoreError> {
+        self.db
+            .query("DELETE type::record('memory', $id);")
+            .bind(("id", id.to_string()))
+            .await?
+            .check()?;
+        Ok(())
     }
     // `mindmap` uses the trait's default (retrieve + project_topic) — no SurrealDB-specific
     // override needed; the move/parallels layer is reconstructed from each saying's `move`.

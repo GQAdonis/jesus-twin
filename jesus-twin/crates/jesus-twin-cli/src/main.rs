@@ -162,6 +162,118 @@ enum Command {
         #[command(subcommand)]
         cmd: GateCmd,
     },
+    /// Generate doc2query-style MACHINE drafts of modern text into a sidecar (modern-legs-v1).
+    /// Indexing-only — these revive the dead modern retrieval legs and are NEVER displayed or
+    /// trained. Requires `--features mistralrs` (the generation model). Use `--limit` to sample.
+    ModernDrafts {
+        /// Corpus to draft modern renderings from.
+        #[arg(default_value = "../build/rag_corpus.jsonl")]
+        jsonl: String,
+        /// Output sidecar path (`{id, ref, text_modern, machine_draft:true}` per line).
+        #[arg(long, default_value = "../build/modern_drafts.jsonl")]
+        out: String,
+        /// Only draft the first N passages (0 = all). For sampling / verification.
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+    },
+    /// Apply machine-draft modern text from a sidecar into the store (flagging `machine_draft`)
+    /// and re-embed so the modern retrieval legs go live. Retrieval-indexing only.
+    ApplyModernDrafts {
+        /// Sidecar produced by `modern-drafts`.
+        #[arg(default_value = "../build/modern_drafts.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Ingest the Tanakh (JPS 1917, his source material) into the separate `tanakh` table and
+    /// embed it. Produce the JSONL first with `python ingest_tanakh.py --out build/tanakh.jsonl`.
+    IngestTanakh {
+        /// Tanakh JSONL produced by `ingest_tanakh.py`.
+        #[arg(default_value = "../build/tanakh.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested with the red-letter corpus.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Retrieve Tanakh source verses for a query — labeled as HIS SOURCE MATERIAL, not his words.
+    RetrieveTanakh {
+        /// The query text.
+        query: String,
+        /// Store directory; must have an ingested `tanakh` table.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+        /// Max verses to return.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
+    /// Ingest the Gospel narrative (his deeds/context) into the separate `gospel_narrative` table
+    /// and embed it. Produce the JSONL with `python extract_gospel_narrative.py`.
+    IngestGospelNarrative {
+        /// Narrative JSONL produced by `extract_gospel_narrative.py`.
+        #[arg(default_value = "../build/gospel_narrative.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested with the red-letter corpus.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Retrieve Gospel-narrative passages — labeled as WHAT THE RECORD SHOWS HE DID, not his words.
+    RetrieveGospelNarrative {
+        /// The query text.
+        query: String,
+        /// Store directory; must have an ingested `gospel_narrative` table.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+        /// Max passages to return.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
+    /// Machine-tag every saying with life-domain + principle facets into a sidecar
+    /// (principle-index-v1). Retrieval-metadata only — never displayed or trained. Requires
+    /// `--features mistralrs`. Use `--limit` to sample.
+    PrincipleTag {
+        /// Corpus to tag.
+        #[arg(default_value = "../build/rag_corpus.jsonl")]
+        jsonl: String,
+        /// Output sidecar (`{id, ref, domains, principles, machine_tagged:true}` per line).
+        #[arg(long, default_value = "../build/principle_tags.jsonl")]
+        out: String,
+        /// Only tag the first N passages (0 = all). For sampling / verification.
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+    },
+    /// Apply principle-index facets from a sidecar into the store (flagging `machine_tagged`).
+    ApplyPrincipleTags {
+        /// Sidecar produced by `principle-tag`.
+        #[arg(default_value = "../build/principle_tags.jsonl")]
+        jsonl: String,
+        /// Store directory; must already be ingested.
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Inspect or delete episodic memories (the human override over the fourth surface).
+    Memory {
+        #[command(subcommand)]
+        cmd: MemoryCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryCmd {
+    /// List memories for a scope (a user id, or a session id), newest first.
+    List {
+        /// The relationship scope key.
+        scope: String,
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
+    /// Delete a memory by id.
+    Delete {
+        /// Memory id (from `memory list`).
+        id: String,
+        #[arg(long, env = "JESUS_TWIN_DB")]
+        db: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -215,6 +327,30 @@ async fn main() -> anyhow::Result<()> {
                     out,
                 },
         } => gate_calibrate(&eval_dir, db.as_deref(), &jsonl, &out).await,
+        Command::ModernDrafts { jsonl, out, limit } => modern_drafts(&jsonl, &out, limit).await,
+        Command::ApplyModernDrafts { jsonl, db } => {
+            apply_modern_drafts(&jsonl, db.as_deref()).await
+        }
+        Command::IngestTanakh { jsonl, db } => ingest_tanakh(&jsonl, db.as_deref()).await,
+        Command::RetrieveTanakh { query, db, limit } => {
+            retrieve_tanakh(&query, db.as_deref(), limit).await
+        }
+        Command::IngestGospelNarrative { jsonl, db } => {
+            ingest_gospel_narrative(&jsonl, db.as_deref()).await
+        }
+        Command::RetrieveGospelNarrative { query, db, limit } => {
+            retrieve_gospel_narrative(&query, db.as_deref(), limit).await
+        }
+        Command::PrincipleTag { jsonl, out, limit } => principle_tag(&jsonl, &out, limit).await,
+        Command::ApplyPrincipleTags { jsonl, db } => {
+            apply_principle_tags(&jsonl, db.as_deref()).await
+        }
+        Command::Memory {
+            cmd: MemoryCmd::List { scope, db },
+        } => memory_list(&scope, db.as_deref()).await,
+        Command::Memory {
+            cmd: MemoryCmd::Delete { id, db },
+        } => memory_delete(&id, db.as_deref()).await,
         Command::Chat => {
             // TODO(build step 3+): drive the orchestrator interactively.
             anyhow::bail!("chat REPL not yet implemented");
@@ -269,7 +405,7 @@ where
         engine.clone(),
         gatekeeper,
         registry.clone(),
-        CoverageGate::default(),
+        CoverageGate,
     );
     let skill_ctx = Arc::new(SkillCtx::new(store, engine));
     let state = AppState::new(Arc::new(orch)).with_skills(registry, skill_ctx);
@@ -297,7 +433,7 @@ async fn build_orchestrator_mock<G: Gatekeeper + 'static>(
         MockEngine::new(),
         gatekeeper,
         register_builtins(Registry::new()),
-        CoverageGate::default(),
+        CoverageGate,
     ))
 }
 
@@ -498,7 +634,7 @@ async fn ask(query: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
             engine,
             OpenGatekeeper,
             register_builtins(Registry::new()),
-            CoverageGate::default(),
+            CoverageGate,
         );
         for event in orch.run(&session).await? {
             print_event(&event);
@@ -516,7 +652,7 @@ async fn ask(query: &str, db: Option<&str>, jsonl: &str) -> anyhow::Result<()> {
             MockEngine::new(),
             OpenGatekeeper,
             register_builtins(Registry::new()),
-            CoverageGate::default(),
+            CoverageGate,
         );
         for event in orch.run(&session).await? {
             print_event(&event);
@@ -543,9 +679,346 @@ fn print_event(event: &AgentEvent) {
     }
 }
 
+/// Generate machine-draft modern renderings (modern-legs-v1) into a sidecar JSONL. Plain
+/// generation (NOT the twin orchestrator): each saying's `text_original` is rewritten in modern
+/// English to populate the modern-register retrieval legs. The output is flagged
+/// `machine_draft: true` and is consumed only by `apply-modern-drafts` for indexing — never
+/// displayed (`context_lines` uses `text_original`) or trained (SFT reads the human xlsx).
+#[cfg(feature = "mistralrs")]
+async fn modern_drafts(jsonl: &str, out: &str, limit: usize) -> anyhow::Result<()> {
+    use jesus_twin_inference::{Engine, GenRequest};
+    use std::io::Write;
+
+    const DRAFT_SYSTEM: &str = "Rewrite the given saying in plain, natural, present-day English. \
+Preserve the exact meaning and any concrete imagery. Do NOT add commentary, framing, names, \
+explanation, or new content. Output only the rewritten line.";
+
+    let engine = build_mistral_engine().await?;
+    let content = std::fs::read_to_string(jsonl)?;
+    let mut records: Vec<jesus_twin_store::RagRecord> = Vec::new();
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        records.push(serde_json::from_str(line).map_err(|e| anyhow::anyhow!("{jsonl}: {e}"))?);
+    }
+    if limit > 0 {
+        records.truncate(limit);
+    }
+    let total = records.len();
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let mut f = std::fs::File::create(out)?;
+    for (i, rec) in records.iter().enumerate() {
+        let draft = engine
+            .generate(GenRequest {
+                system: DRAFT_SYSTEM.to_string(),
+                context: String::new(),
+                user: rec.text_original.clone(),
+            })
+            .await?;
+        let row = serde_json::json!({
+            "id": rec.id,
+            "ref": rec.ref_,
+            "text_modern": draft.trim(),
+            "machine_draft": true,
+        });
+        writeln!(f, "{}", serde_json::to_string(&row)?)?;
+        if (i + 1) % 25 == 0 || i + 1 == total {
+            tracing::info!("drafted {}/{}", i + 1, total);
+        }
+    }
+    println!("wrote {total} machine-draft modern renderings to {out}");
+    println!("next: apply-modern-drafts {out} --db <store>");
+    Ok(())
+}
+
+#[cfg(not(feature = "mistralrs"))]
+async fn modern_drafts(_jsonl: &str, _out: &str, _limit: usize) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "modern-drafts requires building --features mistralrs (needs the generation model)"
+    )
+}
+
+/// Apply a machine-draft sidecar into the store and re-embed the modern legs. Builds the engine
+/// (under the feature) so the embedder is attached and `emb_modern` is populated.
+async fn apply_modern_drafts(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = open_store(db).await?;
+
+    let count = store.ingest_modern_drafts(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("applied {count} machine-draft modern renderings (modern retrieval legs re-embedded)");
+    Ok(())
+}
+
+/// Ingest the Tanakh JSONL (his source material) into the `tanakh` table + embed it. Builds the
+/// engine (under the feature) so the embedder populates `emb`.
+async fn ingest_tanakh(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = open_store(db).await?;
+
+    let count = store.ingest_tanakh(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("ingested {count} Tanakh verses (his source material — not his words)");
+    Ok(())
+}
+
+/// Retrieve Tanakh source verses, labeled distinctly. BM25-only here (no embedder attached);
+/// `serve`/`ask` get the vector leg too. Prints with a clear "source material" header.
+async fn retrieve_tanakh(query: &str, db: Option<&str>, limit: usize) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let hits = store.retrieve_tanakh(query, limit).await?;
+    if hits.is_empty() {
+        println!("no Tanakh source material matches \"{query}\".");
+        return Ok(());
+    }
+    println!("Source material — Hebrew Bible (JPS 1917), what he drew on; NOT his own words:");
+    for p in &hits {
+        let score = p.score.unwrap_or(0.0);
+        println!("  [{score:.3}] {} ({}) {}", p.ref_, p.category, p.text);
+    }
+    Ok(())
+}
+
+/// The ~20 life-domain taxonomy (principle-index-v1; plan Change 11). Machine tagging picks from
+/// this fixed set so a question about a domain can boost passages tagged with it. Used by the
+/// `mistralrs`-gated tagger and the parser tests.
+#[cfg(any(feature = "mistralrs", test))]
+const TAXONOMY: &[&str] = &[
+    "money/provision",
+    "fear/anxiety",
+    "grief",
+    "marriage/divorce",
+    "parenting",
+    "conflict/forgiveness",
+    "ambition/status",
+    "honesty",
+    "illness",
+    "purpose/calling",
+    "enemies",
+    "doubt",
+    "prayer",
+    "wealth/generosity",
+    "judgment of others",
+    "work",
+    "power",
+    "loneliness",
+    "temptation",
+    "death",
+];
+
+/// Parse a tagging reply into canonical domains (matched against [`TAXONOMY`]) + principle lines.
+/// Lenient: tolerates casing/extra prose; keeps only domains in the taxonomy. Pure — unit-tested.
+#[cfg(any(feature = "mistralrs", test))]
+fn parse_principle_tags(reply: &str) -> (Vec<String>, Vec<String>) {
+    let mut domains = Vec::new();
+    let mut principles = Vec::new();
+    for line in reply.lines() {
+        let l = line.trim();
+        let low = l.to_lowercase();
+        if let Some(rest) = low.strip_prefix("domains:") {
+            for part in rest.split(',') {
+                let p = part.trim();
+                if let Some(canon) = TAXONOMY
+                    .iter()
+                    .find(|t| **t == p || p.contains(*t) || t.contains(p))
+                {
+                    if !domains.iter().any(|d| d == canon) {
+                        domains.push((*canon).to_string());
+                    }
+                }
+            }
+        } else if let Some(_rest) = low.strip_prefix("principle:") {
+            // Preserve original casing of the principle text.
+            let p = l[l.to_lowercase().find("principle:").unwrap() + "principle:".len()..].trim();
+            if !p.is_empty() {
+                principles.push(p.to_string());
+            }
+        }
+    }
+    (domains, principles)
+}
+
+/// Machine-tag sayings with life-domain + principle facets (principle-index-v1) into a sidecar.
+/// Plain generation; retrieval-metadata only — never displayed or trained.
+#[cfg(feature = "mistralrs")]
+async fn principle_tag(jsonl: &str, out: &str, limit: usize) -> anyhow::Result<()> {
+    use jesus_twin_inference::{Engine, GenRequest};
+    use std::io::Write;
+
+    let system = format!(
+        "You label a saying with the life DOMAINS it speaks to and the governing PRINCIPLE it \
+establishes. Choose domains ONLY from this list: {}. State one short principle, derived from the \
+saying itself — never invent beyond it. Output EXACTLY two lines and nothing else:\n\
+DOMAINS: <comma-separated domains from the list>\n\
+PRINCIPLE: <one short sentence>",
+        TAXONOMY.join(", ")
+    );
+
+    let engine = build_mistral_engine().await?;
+    let content = std::fs::read_to_string(jsonl)?;
+    let mut records: Vec<jesus_twin_store::RagRecord> = Vec::new();
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        records.push(serde_json::from_str(line).map_err(|e| anyhow::anyhow!("{jsonl}: {e}"))?);
+    }
+    if limit > 0 {
+        records.truncate(limit);
+    }
+    let total = records.len();
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let mut f = std::fs::File::create(out)?;
+    for (i, rec) in records.iter().enumerate() {
+        let reply = engine
+            .generate(GenRequest {
+                system: system.clone(),
+                context: String::new(),
+                user: rec.text_original.clone(),
+            })
+            .await?;
+        let (domains, principles) = parse_principle_tags(&reply);
+        let row = serde_json::json!({
+            "id": rec.id,
+            "ref": rec.ref_,
+            "domains": domains,
+            "principles": principles,
+            "machine_tagged": true,
+        });
+        writeln!(f, "{}", serde_json::to_string(&row)?)?;
+        if (i + 1) % 25 == 0 || i + 1 == total {
+            tracing::info!("tagged {}/{}", i + 1, total);
+        }
+    }
+    println!("wrote {total} principle-index tags to {out}");
+    println!("next: apply-principle-tags {out} --db <store>");
+    Ok(())
+}
+
+#[cfg(not(feature = "mistralrs"))]
+async fn principle_tag(_jsonl: &str, _out: &str, _limit: usize) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "principle-tag requires building --features mistralrs (needs the generation model)"
+    )
+}
+
+/// Apply a principle-index sidecar into the store (no embedder needed — facets don't embed).
+async fn apply_principle_tags(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let count = store.ingest_principle_tags(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("tagged {count} sayings with life-domain + principle facets");
+    Ok(())
+}
+
+/// Ingest the Gospel-narrative JSONL (his deeds/context) into the `gospel_narrative` table +
+/// embed it. Builds the engine (under the feature) so the embedder populates `emb`.
+async fn ingest_gospel_narrative(jsonl: &str, db: Option<&str>) -> anyhow::Result<()> {
+    #[cfg(feature = "mistralrs")]
+    let store = {
+        let engine = build_mistral_engine().await?;
+        open_store(db)
+            .await?
+            .with_embedder(Arc::new(StoreEmbedder(engine)))
+    };
+    #[cfg(not(feature = "mistralrs"))]
+    let store = open_store(db).await?;
+
+    let count = store.ingest_gospel_narrative(jsonl).await?;
+    drop(store);
+    tokio::task::yield_now().await;
+    println!("ingested {count} Gospel-narrative passages (what the record shows he did)");
+    Ok(())
+}
+
+/// Retrieve Gospel-narrative passages, labeled distinctly with their attestation. BM25-only here.
+async fn retrieve_gospel_narrative(
+    query: &str,
+    db: Option<&str>,
+    limit: usize,
+) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let hits = store.retrieve_gospel_narrative(query, limit).await?;
+    if hits.is_empty() {
+        println!("no Gospel-narrative matches \"{query}\".");
+        return Ok(());
+    }
+    println!("What the record shows he DID (Gospel narrative, WEB); NOT his own words:");
+    for p in &hits {
+        let score = p.score.unwrap_or(0.0);
+        println!("  [{score:.3}] {} ({}) {}", p.ref_, p.attestation, p.text);
+    }
+    Ok(())
+}
+
+/// List episodic memories for a scope (newest first) — the human inspect/export control.
+async fn memory_list(scope: &str, db: Option<&str>) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    let memories = store.list_memories(scope).await?;
+    if memories.is_empty() {
+        println!("no memories for scope \"{scope}\".");
+        return Ok(());
+    }
+    println!("memories for \"{scope}\" (newest first):");
+    for m in &memories {
+        println!(
+            "  [{}] {} ({}, importance {}) {}",
+            m.id, m.at, m.kind, m.importance, m.text
+        );
+    }
+    Ok(())
+}
+
+/// Delete one episodic memory by id (human override; CLAUDE.md principle 15).
+async fn memory_delete(id: &str, db: Option<&str>) -> anyhow::Result<()> {
+    let store = open_store(db).await?;
+    store.delete_memory(id).await?;
+    println!("deleted memory {id}");
+    Ok(())
+}
+
 async fn open_store(db: Option<&str>) -> anyhow::Result<SurrealStore> {
     Ok(match db {
         Some(path) => SurrealStore::open(path).await?,
         None => SurrealStore::memory().await?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_principle_tags_extracts_canonical_domains_and_principle() {
+        let reply = "DOMAINS: fear/anxiety, money/provision, made-up-domain\n\
+                     PRINCIPLE: God provides; worry changes nothing.";
+        let (domains, principles) = parse_principle_tags(reply);
+        assert_eq!(domains, vec!["fear/anxiety", "money/provision"]); // bogus domain dropped
+        assert_eq!(principles, vec!["God provides; worry changes nothing."]);
+    }
+
+    #[test]
+    fn parse_principle_tags_is_lenient_about_casing_and_noise() {
+        let reply =
+            "Here are the tags.\ndomains: Prayer\nprinciple: Ask, and keep asking.\nthanks!";
+        let (domains, principles) = parse_principle_tags(reply);
+        assert_eq!(domains, vec!["prayer"]);
+        assert_eq!(principles, vec!["Ask, and keep asking."]);
+    }
 }

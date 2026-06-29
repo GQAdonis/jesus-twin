@@ -42,7 +42,7 @@ async fn make_orchestrator() -> Option<Orchestrator<SurrealStore, MockEngine, Op
         MockEngine::new(),
         OpenGatekeeper,
         Registry::new(),
-        CoverageGate::default(),
+        CoverageGate,
     ))
 }
 
@@ -198,6 +198,8 @@ impl Store for FakeStore {
             occasion: String::new(),
             move_: String::new(),
             translation: String::new(),
+            domains: vec!["conflict/forgiveness".into()],
+            principles: vec!["Love of God and neighbor is the whole of the law.".into()],
             score: Some(0.03),
         };
         Ok(RetrievalSet {
@@ -222,7 +224,7 @@ fn fake_orchestrator(legs: u8) -> Orchestrator<FakeStore, MockEngine, OpenGateke
         MockEngine::new(),
         OpenGatekeeper,
         Registry::new(),
-        CoverageGate::default(),
+        CoverageGate,
     )
 }
 
@@ -267,6 +269,12 @@ async fn tier2_one_leg_emits_low_confidence_chunk() {
     let (name, data) = chunk.expect("Tier 2 emits a custom chunk");
     assert_eq!(name, "x-jesus-twin/low-confidence");
     assert_eq!(data["legs_matched"], serde_json::json!(1));
+    // principle-tier: the retrieved passage's principle facet rides on the chunk (and into the
+    // bridging context). The FakeStore tags it with one principle.
+    assert_eq!(
+        data["principles"],
+        serde_json::json!(["Love of God and neighbor is the whole of the law."])
+    );
     // Still answers (Tier 2 engages, with the hedge); does not refuse.
     assert!(
         events
@@ -277,5 +285,159 @@ async fn tier2_one_leg_emits_low_confidence_chunk() {
         !events
             .iter()
             .any(|e| matches!(e, AgentEvent::Refusal { .. }))
+    );
+}
+
+// --- source/narrative wiring: the two SEPARATE labeled corpora reach the context + AG-UI chunks ---
+
+use std::sync::{Arc, Mutex};
+
+use jesus_twin_core::prompt;
+use jesus_twin_inference::{Engine, EngineError, GenRequest};
+use jesus_twin_store::{NarrativePassage, SourcePassage};
+
+/// A store that returns a grounded (2-leg) red-letter passage PLUS one Tanakh source verse and one
+/// Gospel-narrative deed — so the orchestrator's source/narrative wiring can be exercised end to end.
+struct SupplStore;
+
+#[async_trait::async_trait]
+impl Store for SupplStore {
+    async fn retrieve(&self, _q: &str, _l: usize) -> Result<RetrievalSet, StoreError> {
+        Ok(RetrievalSet {
+            passages: vec![Passage {
+                id: "saying-1".into(),
+                ref_: "Matthew 4:4".into(),
+                book_author: "Matthew".into(),
+                text_original: "Man shall not live by bread alone.".into(),
+                text_modern: String::new(),
+                context: String::new(),
+                location: String::new(),
+                occasion: String::new(),
+                move_: String::new(),
+                translation: String::new(),
+                domains: vec![],
+                principles: vec![],
+                score: Some(0.05),
+            }],
+            top_legs_matched: 2,
+        })
+    }
+    async fn ingest_corpus(&self, _p: &str) -> Result<usize, StoreError> {
+        Ok(0)
+    }
+    async fn get_by_ref(&self, _r: &str) -> Result<Option<Passage>, StoreError> {
+        Ok(None)
+    }
+    async fn find_by_move(&self, _m: &str, _l: usize) -> Result<Vec<Passage>, StoreError> {
+        Ok(vec![])
+    }
+    async fn retrieve_tanakh(
+        &self,
+        _q: &str,
+        _l: usize,
+    ) -> Result<Vec<SourcePassage>, StoreError> {
+        Ok(vec![SourcePassage {
+            ref_: "Deuteronomy 8:3".into(),
+            text: "man doth not live by bread only".into(),
+            book: "Deuteronomy".into(),
+            category: "torah".into(),
+            translation: "JPS 1917".into(),
+            score: Some(0.04),
+        }])
+    }
+    async fn retrieve_gospel_narrative(
+        &self,
+        _q: &str,
+        _l: usize,
+    ) -> Result<Vec<NarrativePassage>, StoreError> {
+        Ok(vec![NarrativePassage {
+            ref_: "Matthew 4:1".into(),
+            text: "Jesus was led up by the Spirit into the wilderness to be tempted.".into(),
+            book: "Matthew".into(),
+            attestation: "single".into(),
+            witnesses: vec!["Matthew".into()],
+            score: Some(0.04),
+        }])
+    }
+}
+
+/// An engine that records the generation context it was handed, so the test can assert the labeled
+/// blocks (and their order) actually reached generation — not merely that events were emitted.
+#[derive(Clone)]
+struct CapturingEngine(Arc<Mutex<String>>);
+
+#[async_trait::async_trait]
+impl Engine for CapturingEngine {
+    async fn generate(&self, req: GenRequest) -> Result<String, EngineError> {
+        *self.0.lock().unwrap() = req.context.clone();
+        Ok(format!("(mock) {}", req.user.trim()))
+    }
+}
+
+#[tokio::test]
+async fn source_and_narrative_corpora_wire_as_distinct_labeled_blocks() {
+    let captured = Arc::new(Mutex::new(String::new()));
+    let orch = Orchestrator::new(
+        SupplStore,
+        CapturingEngine(captured.clone()),
+        OpenGatekeeper,
+        Registry::new(),
+        CoverageGate,
+    );
+
+    let events = orch
+        .run(&session_with("was he tempted in the wilderness"))
+        .await
+        .expect("run");
+
+    // 1. Each corpus is surfaced as its OWN additive, namespaced AG-UI chunk, carrying the facets
+    // that label it distinctly (source = scripture category; narrative = attestation).
+    let custom: std::collections::HashMap<String, serde_json::Value> = events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Custom { name, data } => Some((name.clone(), data.clone())),
+            _ => None,
+        })
+        .collect();
+    let source = custom
+        .get("x-jesus-twin/source-text")
+        .expect("source-text chunk emitted");
+    assert_eq!(source["passages"][0]["ref"], serde_json::json!("Deuteronomy 8:3"));
+    assert_eq!(source["passages"][0]["category"], serde_json::json!("torah"));
+    let narrative = custom
+        .get("x-jesus-twin/narrative-context")
+        .expect("narrative-context chunk emitted");
+    assert_eq!(narrative["passages"][0]["ref"], serde_json::json!("Matthew 4:1"));
+    assert_eq!(
+        narrative["passages"][0]["attestation"],
+        serde_json::json!("single")
+    );
+
+    // 2. Both labeled blocks reach the generation context, DISTINCT from each other and from the
+    // red-letter grounding block — the bright line: source material / deeds are never his words.
+    let ctx = captured.lock().unwrap().clone();
+    assert!(
+        ctx.contains(prompt::SOURCE_INSTRUCTION),
+        "source-material block must be labeled in context"
+    );
+    assert!(ctx.contains("Deuteronomy 8:3"), "source verse present");
+    assert!(
+        ctx.contains(prompt::NARRATIVE_INSTRUCTION),
+        "narrative block must be labeled in context"
+    );
+    assert!(ctx.contains("Matthew 4:1"), "narrative deed present");
+    assert!(
+        ctx.contains(prompt::CONTEXT_INSTRUCTION),
+        "red-letter grounding block must still be present"
+    );
+
+    // 3. Ordering: his own words (the grounding block) sit LAST — the high-attention end-of-prompt
+    // position — after his source material and his deeds.
+    let src = ctx.find(prompt::SOURCE_INSTRUCTION).unwrap();
+    let nar = ctx.find(prompt::NARRATIVE_INSTRUCTION).unwrap();
+    let grd = ctx.find(prompt::CONTEXT_INSTRUCTION).unwrap();
+    assert!(
+        src < grd && nar < grd,
+        "grounding (his words) must come after source + narrative blocks"
     );
 }

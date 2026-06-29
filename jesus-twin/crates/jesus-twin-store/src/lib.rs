@@ -17,6 +17,6 @@ pub mod store;
 pub mod surreal;
 
 pub use embed::Embed;
-pub use retrieve::{Passage, RagRecord, RetrievalSet};
+pub use retrieve::{Memory, NarrativePassage, Passage, RagRecord, RetrievalSet, SourcePassage};
 pub use store::{Store, StoreError};
 pub use surreal::SurrealStore;

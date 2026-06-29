@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 files.zip
 
+# Secrets / local env (e.g. the HF token) — never commit
+.env
+.env.*
+
 # Office temp/lock files
 ~$*
 
@@ -35,3 +39,15 @@ jesus-twin/twin.db/
 jesus-twin/twin.db.*/
 twin.db/
 twin.db.*/
+
+# Machine-draft modern text sidecar (modern-legs-v1) — regenerable, indexing-only
+build/modern_drafts.jsonl
+
+# Tanakh corpus (hebrew-bible) — regenerate with `python ingest_tanakh.py`; large, public-domain JPS 1917
+build/tanakh*.jsonl
+
+# Machine-tagged principle-index facets sidecar (principle-index-v1) — regenerable, indexing-only
+build/principle_tags.jsonl
+
+# Gospel-narrative corpus (gospel-context-kb) — regenerate with `python extract_gospel_narrative.py`
+build/gospel_narrative.jsonl

@@ -48,6 +48,8 @@ fn caesar() -> Passage {
         occasion: String::new(),
         move_: "M02".into(),
         translation: String::new(),
+        domains: Vec::new(),
+        principles: Vec::new(),
         score: Some(8.8),
     }
 }

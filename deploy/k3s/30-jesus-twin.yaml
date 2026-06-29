@@ -1,0 +1,117 @@
+# The jesus-twin service: a GPU Deployment, a ClusterIP Service, and the HTTPRoute that attaches
+# it to the Gateway's HTTPS listener.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jesus-twin
+  namespace: jesus-twin
+  labels: { app: jesus-twin }
+spec:
+  replicas: 1                      # single GPU, in-process mistral.rs + embedded SurrealDB -> 1 pod
+  strategy: { type: Recreate }     # don't run two pods contending for the one GPU during rollout
+  selector:
+    matchLabels: { app: jesus-twin }
+  template:
+    metadata:
+      labels: { app: jesus-twin }
+    spec:
+      runtimeClassName: nvidia     # use the nvidia containerd runtime (GPU passthrough)
+      # Ingest the red-letter corpus into the persistent store ONCE, before the server opens it.
+      # The embedded SurrealDB is single-process, so ingestion cannot run concurrently with serve —
+      # an initContainer runs to completion first. Idempotent: the `.ingested` marker skips re-runs
+      # on subsequent pod starts. To also load the Tanakh / Gospel-narrative / principle corpora,
+      # add their `jesus-twin ingest-tanakh` / `ingest-gospel-narrative` / `apply-*` calls here
+      # (their build/*.jsonl must be baked into the image or mounted).
+      initContainers:
+        - name: ingest
+          image: jesus-twin:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - 'test -f /data/.ingested || (jesus-twin ingest /app/build/rag_corpus.jsonl --db /data/twin.db && touch /data/.ingested)'
+          env:
+            - { name: JESUS_TWIN_MODEL,       value: "/models/base" }
+            - { name: JESUS_TWIN_EMBED_MODEL, value: "/models/embeddinggemma" }
+            - { name: JESUS_TWIN_ISQ,         value: "Q4K" }
+            - { name: RUST_LOG,               value: "info" }
+          resources:
+            limits: { nvidia.com/gpu: "1" }   # ingestion builds embeddings -> needs the GPU
+          volumeMounts:
+            - { name: model-base,   mountPath: /models/base,           readOnly: true }
+            - { name: model-embed,  mountPath: /models/embeddinggemma, readOnly: true }
+            - { name: data,         mountPath: /data }
+      containers:
+        - name: jesus-twin
+          image: jesus-twin:local  # built from deploy/Dockerfile; imported into k3s containerd
+          imagePullPolicy: IfNotPresent
+          command: ["jesus-twin", "serve"]
+          env:
+            - { name: JESUS_TWIN_ADDR,        value: "0.0.0.0:8080" }   # MUST be 0.0.0.0 (default is 127.0.0.1)
+            - { name: JESUS_TWIN_DB,          value: "/data/twin.db" }  # persistent, pre-ingested store
+            - { name: JESUS_TWIN_MODEL,       value: "/models/base" }   # RAG-first on BASE Gemma 4
+            - { name: JESUS_TWIN_EMBED_MODEL, value: "/models/embeddinggemma" }
+            - { name: JESUS_TWIN_ISQ,         value: "Q4K" }            # 4-bit in-situ quant at load
+            - { name: RUST_LOG,               value: "info" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          resources:
+            requests: { cpu: "2", memory: "8Gi" }
+            limits:
+              cpu: "8"
+              memory: "24Gi"
+              nvidia.com/gpu: "1"   # schedules onto a GPU node + exposes the device to the container
+          volumeMounts:
+            - { name: model-base,   mountPath: /models/base,           readOnly: true }
+            - { name: model-embed,  mountPath: /models/embeddinggemma, readOnly: true }
+            - { name: data,         mountPath: /data }
+          # Weight load takes minutes; give it a long startup window before liveness kicks in.
+          startupProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 10
+            failureThreshold: 60     # up to ~10 min to load weights + open the listener
+          livenessProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 10
+      volumes:
+        # hostPath is the pragmatic choice on a single node where the files already live. For a
+        # multi-node cluster, replace these with a ReadWriteMany PVC (NFS/Longhorn) so the pod can
+        # schedule onto any GPU node.
+        - name: model-base
+          hostPath: { path: /usr/local/src/jesus-twin/jesus-twin-base, type: Directory }
+        - name: model-embed
+          hostPath: { path: /usr/local/src/jesus-twin/jesus-twin-embeddinggemma, type: Directory }
+        - name: data
+          hostPath: { path: /var/lib/jesus-twin, type: DirectoryOrCreate }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jesus-twin
+  namespace: jesus-twin
+  labels: { app: jesus-twin }
+spec:
+  selector: { app: jesus-twin }
+  ports:
+    - { name: http, port: 80, targetPort: 8080 }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: jesus-twin
+  namespace: jesus-twin
+spec:
+  parentRefs:
+    - name: jesus-twin-gateway
+      sectionName: websecure       # attach to the HTTPS (TLS-terminating) listener
+  hostnames:
+    - jesus-twin.know-me.tools
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: jesus-twin
+          port: 80

@@ -104,3 +104,239 @@ async fn retrieve_returns_empty_for_out_of_corpus_query() {
     );
     assert_eq!(results.top_score(), 0.0);
 }
+
+/// hebrew-bible: the Tanakh loads into its OWN table and retrieves as labeled source material
+/// (BM25-only here — no embedder). It must NOT leak into the red-letter `saying` retrieval.
+#[tokio::test]
+async fn ingests_tanakh_as_separate_source_corpus() {
+    use std::io::Write;
+
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+    let path = std::env::temp_dir().join(format!("tanakh-test-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&path).expect("temp jsonl");
+        writeln!(
+            f,
+            r#"{{"ref":"Genesis 1:1","text":"In the beginning God created the heaven and the earth.","book":"Genesis","category":"torah","translation":"JPS 1917"}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ref":"Deuteronomy 8:3","text":"man doth not live by bread only, but by every thing that proceedeth out of the mouth of the LORD.","book":"Deuteronomy","category":"torah","translation":"JPS 1917"}}"#
+        )
+        .unwrap();
+    }
+
+    let n = store
+        .ingest_tanakh(path.to_str().unwrap())
+        .await
+        .expect("ingest tanakh");
+    assert_eq!(n, 2, "two verses loaded");
+
+    let hits = store
+        .retrieve_tanakh("bread", 5)
+        .await
+        .expect("retrieve tanakh");
+    assert!(
+        hits.iter().any(|p| p.ref_ == "Deuteronomy 8:3"),
+        "BM25 should surface the bread verse, got {:?}",
+        hits.iter().map(|p| &p.ref_).collect::<Vec<_>>()
+    );
+    assert!(
+        hits.iter().all(|p| p.translation == "JPS 1917"),
+        "every Tanakh result is labeled JPS 1917 source material"
+    );
+
+    // Separation: the red-letter `saying` retrieval must not return Tanakh verses.
+    let saying_hits = store.retrieve("bread", 5).await.expect("retrieve saying");
+    assert!(
+        saying_hits.passages.is_empty(),
+        "Tanakh must not leak into the red-letter saying corpus"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// principle-index-v1: applied facets round-trip onto the retrieved `Passage` (the path
+/// principle-tier reads). A wrong tag costs a retrieval miss, never display/training content.
+#[tokio::test]
+async fn principle_facets_round_trip_onto_passage() {
+    use std::io::Write;
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+
+    let corpus = std::env::temp_dir().join(format!("pi-corpus-{}.jsonl", std::process::id()));
+    let tags = std::env::temp_dir().join(format!("pi-tags-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&corpus).expect("corpus");
+        writeln!(
+            f,
+            r#"{{"id":"wj-1","ref":"Matthew 6:25","text_original":"do not be anxious about your life","book_author":"Matthew"}}"#
+        )
+        .unwrap();
+        let mut g = std::fs::File::create(&tags).expect("tags");
+        writeln!(
+            g,
+            r#"{{"id":"wj-1","domains":["fear/anxiety"],"principles":["Trust the Father's provision over anxious striving."]}}"#
+        )
+        .unwrap();
+    }
+    store
+        .ingest_corpus(corpus.to_str().unwrap())
+        .await
+        .expect("ingest");
+    let tagged = store
+        .ingest_principle_tags(tags.to_str().unwrap())
+        .await
+        .expect("apply tags");
+    assert_eq!(tagged, 1);
+
+    let set = store.retrieve("anxious", 5).await.expect("retrieve");
+    let p = set.passages.first().expect("a passage");
+    assert_eq!(p.domains, vec!["fear/anxiety"]);
+    assert_eq!(
+        p.principles,
+        vec!["Trust the Father's provision over anxious striving."],
+        "principle facets must round-trip onto the Passage for Tier-2 bridging"
+    );
+
+    let _ = std::fs::remove_file(&corpus);
+    let _ = std::fs::remove_file(&tags);
+}
+
+/// episodic-memory: the fourth surface is ISOLATED (corpus retrieval never returns a memory) and
+/// SCOPED (memories never cross relationships); record returns an id; delete is a human override.
+#[tokio::test]
+async fn memory_is_isolated_and_scoped() {
+    use std::io::Write;
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+
+    let corpus = std::env::temp_dir().join(format!("mem-corpus-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&corpus).expect("corpus");
+        writeln!(
+            f,
+            r#"{{"id":"wj-1","ref":"Matthew 6:25","text_original":"do not be anxious about your life","book_author":"Matthew"}}"#
+        )
+        .unwrap();
+    }
+    store
+        .ingest_corpus(corpus.to_str().unwrap())
+        .await
+        .expect("ingest");
+
+    // Memories in two scopes; text deliberately shares the keyword "anxious" with the saying.
+    let id_a = store
+        .record_memory(
+            "user-A",
+            "observation",
+            "User A is anxious about money.",
+            7,
+            &["Matthew 6:25".into()],
+        )
+        .await
+        .expect("record A");
+    assert!(!id_a.is_empty(), "record returns the new id");
+    store
+        .record_memory(
+            "user-B",
+            "observation",
+            "User B is anxious about a job.",
+            5,
+            &[],
+        )
+        .await
+        .expect("record B");
+
+    // ISOLATION: corpus retrieval surfaces only sayings, never a memory.
+    let corpus_hits = store.retrieve("anxious", 10).await.expect("retrieve");
+    assert!(
+        corpus_hits
+            .passages
+            .iter()
+            .all(|p| p.ref_ == "Matthew 6:25"),
+        "corpus retrieve must never return memory records"
+    );
+
+    // SCOPE: each relationship sees only its own memories.
+    let a_mem = store
+        .retrieve_memories("user-A", 5)
+        .await
+        .expect("recall A");
+    assert_eq!(a_mem.len(), 1);
+    assert!(a_mem[0].text.contains("User A"));
+    let b_mem = store
+        .retrieve_memories("user-B", 5)
+        .await
+        .expect("recall B");
+    assert_eq!(b_mem.len(), 1);
+    assert!(
+        b_mem[0].text.contains("User B"),
+        "memories never cross relationships"
+    );
+
+    // Human override: delete removes it.
+    store.delete_memory(&id_a).await.expect("delete");
+    assert!(
+        store
+            .retrieve_memories("user-A", 5)
+            .await
+            .expect("recall A")
+            .is_empty(),
+        "deleted memory is gone"
+    );
+
+    let _ = std::fs::remove_file(&corpus);
+}
+
+/// gospel-context-kb: the Gospel narrative loads into its OWN table and retrieves with its
+/// attestation flag, labeled as deeds — and must NOT leak into the red-letter `saying` retrieval.
+#[tokio::test]
+async fn ingests_gospel_narrative_as_separate_corpus() {
+    use std::io::Write;
+    let store = SurrealStore::memory().await.expect("open in-memory store");
+    let path = std::env::temp_dir().join(format!("gn-test-{}.jsonl", std::process::id()));
+    {
+        let mut f = std::fs::File::create(&path).expect("temp jsonl");
+        writeln!(
+            f,
+            r#"{{"ref":"Mark 1:41","text":"Being moved with compassion, he stretched out his hand and touched him.","book":"Mark","attestation":"single","witnesses":["Mark"]}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ref":"Matthew 4:1","text":"Then Jesus was led up by the Spirit into the wilderness to be tempted.","book":"Matthew","attestation":"single","witnesses":["Matthew"]}}"#
+        )
+        .unwrap();
+    }
+    let n = store
+        .ingest_gospel_narrative(path.to_str().unwrap())
+        .await
+        .expect("ingest narrative");
+    assert_eq!(n, 2);
+
+    let hits = store
+        .retrieve_gospel_narrative("stretched out his hand", 5)
+        .await
+        .expect("retrieve narrative");
+    assert!(
+        hits.iter().any(|p| p.ref_ == "Mark 1:41"),
+        "BM25 should surface the deed, got {:?}",
+        hits.iter().map(|p| &p.ref_).collect::<Vec<_>>()
+    );
+    assert!(
+        hits.iter().all(|p| !p.attestation.is_empty()),
+        "every narrative result carries an attestation flag"
+    );
+
+    // Separation: the red-letter `saying` retrieval must not return narrative passages.
+    let saying_hits = store
+        .retrieve("stretched", 5)
+        .await
+        .expect("retrieve saying");
+    assert!(
+        saying_hits.passages.is_empty(),
+        "gospel narrative must not leak into the red-letter saying corpus"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}

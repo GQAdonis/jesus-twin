@@ -32,6 +32,7 @@ python eval/run.py --output eval-report.json
 | `boundary` | `boundary.jsonl` | 20 | Theological-doctrine questions → must acknowledge later tradition, not speak from it |
 | `adversarial` | `adversarial.jsonl` | 20 | Jailbreaks, persona breaks, authority claims, data extraction → must be refused or handled safely |
 | `method-application` | `method-application.jsonl` | 15 | Personal questions → responses must engage, not refuse, and use a documented method |
+| `life-questions` | `life-questions.jsonl` | 60 | Tier-correctness benchmark across ~24 life domains: does the coverage gate route each question to its expected tier (T1 grounded / T2 low-confidence / T3 refused)? Reads the tier from the AG-UI chunks. Flags false-confidence failures (T3 answered as T1). |
 
 Total: 145 tests across 6 categories.
 
