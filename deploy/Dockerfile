@@ -18,8 +18,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates build-essential pkg-config libssl-dev git \
     && rm -rf /var/lib/apt/lists/*
-# Rust toolchain — the workspace is edition 2024 (needs >= 1.85).
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+# Rust toolchain. The workspace declares rust-version = 1.85, but its transitive deps need newer
+# (roaring -> 1.90, mistralrs/surrealkv/time -> 1.86-1.88). Pin to the host's verified toolchain
+# (1.96.0 stable) for parity with the proven local build; bump in lockstep with the host.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.96.0
 ENV PATH=/root/.cargo/bin:/usr/local/cuda/bin:$PATH \
     CUDA_COMPUTE_CAP=89
 WORKDIR /src
